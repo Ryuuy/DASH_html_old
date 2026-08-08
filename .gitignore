@@ -1,0 +1,4 @@
+# 大文件：DASH 分片的中间产物 / 存档，网页与代码均未引用，跳过不上传
+bunny_2s_1080p/video-pressed.zip
+bunny_2s_1080p/**/output*kbit.mp4
+.claude/

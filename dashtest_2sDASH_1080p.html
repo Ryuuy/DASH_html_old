@@ -1,0 +1,95 @@
+<html>
+	<head>
+		<title>ITEC @ AAU | DASH-JS Showcase </title>
+		<meta http-equiv="Content-Type" content="text/html">
+        <meta charset="utf-8">
+	<script src="dash-js/dashPlayerVars.js"></script>
+	<script src="dash-js/mediaSourceAPIAdaptation.js"></script>	
+	<script src="dash-js/fplot_partial.js"></script>
+	<script src="dash-js/fplot_Buffer.js"></script>
+	<script src="dash-js/mpdParser.js"></script>	
+	<script src="dash-js/bandwidth.js"></script>
+	<script src="dash-js/adaptationlogic.js"></script>
+	<script src="dash-js/rate_measurement.js"></script>
+	<script src="dash-js/DASHttp.js"></script>
+	<script src="dash-js/basebuffer.js"></script>
+	<script src="dash-js/timeBuffer.js"></script>
+	<script src="dash-js/mediaSourceBuffer.js"></script>
+	<script src="dash-js/eventHandlers.js"></script>
+	<script src="dash-js/dash.js"></script>
+	<script src="dash-js/create_logs.js"></script>
+	<script src="dash-js/PredTracesFerry/predTrace-LSTM.js"></script>
+    <script>
+
+     // var globeStartTime = new Date().getTime(); //20181014 不再使用这个来计算predTrace的选择，因为其与任何数据都不对应
+
+    </script>
+	</head>
+	<body>
+	<h1> DASH-JS Showcase </h1>
+	This showcase will only work using Google Chrome with MediaSource API enabled (use chrome://flags to enable the API). 
+<p>
+    <br>
+        Bandwidth in kbps (0=infinite[estimated]): <input type="text" id="bps" value="0"> <input type="button" value="Set" onClick="javascript:setBandwidth()"></p>
+	<p>
+		<script>
+		document.write(document.getElementById("bps").value);
+        </script>
+        
+	<video id = "myVideo" width="1920" height="1080" controls autoplay ></video>
+	
+	<script>
+	// Here, autoplay means when the video is loaded, it will play automatically
+	</script>
+	
+	<!-- <canvas id="graph1" width="500" height="300" style="border:1px solid #000000;"></canvas> -->
+	<br>
+	<br>
+	<br>
+	 <canvas id="graph" width="800" height="400"></canvas>
+
+	<br>
+	<br>
+	 <canvas id="graph2" width="800" height="400"></canvas>
+    </p>
+		<script>
+ 		document.getElementById("bps").value = maxBandwidth/1024;
+		function setBandwidth()  //set the estimated maxBandwidth when trigger the event, 
+		                         //only affect the bitrate selection, not limit the real bandwidth
+            {
+                
+                mybps = parseInt(document.getElementById("bps").value)*1024;
+                maxBandwidth = mybps;
+                
+            }
+		
+		 
+		
+		 video = document.querySelector('video');  // get the first element with the element name
+		// video = document.getElementById('myVideo'); // get element by id the same performance
+		var dashPlayer = new DASHPlayer(video, "http://127.0.0.1:8080/bunny_ibmff_mixed_1080p.mpd");
+		//var dashPlayer = new DASHPlayer(video, "http://192.168.1.103:8080/bunny_ibmff_mixed_1080p.mpd");
+		// 这里新建了一个DASHPlayer的对象 dashPlayer, 其参数为当前video元素，以及指定的mpd文件
+		// var dashPlayer = new DASHPlayer(video,"http://20689kf139.iok.la:50708/DASH-JS-master/bigbuckbunny_mp.mpd");
+		
+		
+		</script>
+		
+		<input type="button" value="Show All logs" onclick="create_all_logs()">
+		<br>
+		<input type="button" value="Show Buffer log" onclick="create_buffer_log()">
+		<br>
+		<input type="button" value="Show Actual Bandwidth log" onclick="create_BW_log()">
+		<br>
+		<input type="button" value="Show Actual Bandwidth log with getTime()" onclick="create_BW_getTime_log()">
+		<br>
+		<input type="button" value="Show Representation log" onclick="create_rep_log()">
+		<br>
+		<input type="button" value="Show onProgress Event log" onclick="create_progress_log()">
+        <br>
+		<input type="button" value="Show onProgress Event log with getTime()" onclick="create_progress_getTime_log()">
+       
+
+		
+	</body>
+</html>
