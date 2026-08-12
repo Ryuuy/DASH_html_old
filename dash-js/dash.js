@@ -49,7 +49,11 @@ function DASH_MPD_loaded()
 	
 	adaptation.switchRepresentation(); // try to get a better representation at the beginning
 	
-	overlayBuffer = init_mediaSourceBuffer(0, 38,38,6,dashInstance.videoTag,playbackTimePlot);
+	overlayBuffer = init_mediaSourceBuffer(0, 4,4,2,dashInstance.videoTag,playbackTimePlot);
+
+	// 20260812 新增：overlayBuffer 刚创建、还没存取过任何分片，这时候一次性把环形缓冲区
+	// 物理槽位数开到所有 ISAC 模式的最大值，见 dash-js/isac.js 里的说明
+	if (typeof initISACBufferCapacity === 'function') initISACBufferCapacity();
 
 	overlayBuffer.addObserver(myFplot2); //让myFplot观测buffer的变化
 	

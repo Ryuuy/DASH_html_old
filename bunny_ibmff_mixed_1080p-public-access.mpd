@@ -6,7 +6,7 @@
      type="static"
      mediaPresentationDuration="PT0H9M56.46S"
      minBufferTime="PT2.0S">   
-     <BaseURL>http://192.168.1.5:8080/bunny_2s_1080p/</BaseURL>
+     <BaseURL>bunny_2s_1080p/</BaseURL>
      <Period start="PT0S">
         <AdaptationSet bitstreamSwitching="true">
            <Representation id="0" codecs="avc3.640028" mimeType="video/mp4" width="1920" height="1080" startWithSAP="1" bandwidth="104037">

@@ -103,7 +103,16 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 			
 			// select a matching bandwidth ...
 			var i=0, n=parseInt(this.lowestRepresentation.bandwidth), m=this.representationID, _mybps = this.bandwidth.getBps();
-			
+
+			// 20260812 新增：ISAC 遮挡预警模式下，跳过按带宽估计选码率，直接强制走最低码率
+			// （见 dash-js/isac.js），原有的按带宽选码率逻辑保留在 else 分支里，不受影响
+			if (typeof isac !== 'undefined' && isac.mode === "shadowing") {
+
+				n = parseInt(this.lowestRepresentation.bandwidth);
+				m = this.lowestRepresentationID;
+
+			} else {
+
 			this.mpd.period[0].group[0].representation.forEach(function(_rel){
 				if(parseInt(_rel.bandwidth) < _mybps && n <= parseInt(_rel.bandwidth))
 				{
@@ -114,7 +123,7 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 					//用于测试，强制每次都选择12，最高码率，或者每次都1，最低码率
 					//m = 3;
 				}
-				i++; 
+				i++;
 
 			}
 			);
@@ -127,6 +136,8 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 		      	n = parseInt(this.lowestRepresentation.bandwidth);
 		      	m = this.lowestRepresentationID;
             }
+
+			}
 
 			console.log("n: " + n + ", m:" + m);
 			

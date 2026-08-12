@@ -19,6 +19,9 @@ var contentGlobal; //在全局定义一个指针去访问content
 var delayInterval; // 全局的delayInterval
 var tpTrace = require('./throughputTrace/thruputTraceFerry.js'); //将thruputTrace1.js中定义的throughput读取进来到tpTrace
 
+// 20260812 新增：限速开关。true=按 tpTrace 限速（原有行为）；false=不限速，全速把文件发出去
+var THROTTLE_ENABLED = true;
+
 // 使用on方法注册事件处理,该事件一直被监听,任何的请求都会进入回调函数,执行相应的操作
 server.on('request', function(request, response) { // 当有request请求的时候触发处理函数  
   // 解析请求的URL
@@ -65,19 +68,23 @@ server.on('request', function(request, response) { // 当有request请求的时�
         response.end();
       } else {
 
-        if (filename.match(".m4s")){
+        if (filename.match(".m4s") && THROTTLE_ENABLED){
 
           if (isSegStart == true){
           segStartTime = timeRequestReceived;// 这里也换成第一个seg的request到来的时间，取switch前的时间点
           console.log("The first segment request comes at " + (segStartTime - htmlStartTime)/1000 + " from HTML request; The latter are counted from Seg1 Request");
           isSegStart = false;
           }
-          
+
           response.writeHead(200, { 'Content-Type' : type });
           contentGlobal = content;
           responseGlobal = response;
           contentArrayCnt = 0;
           contentLength  = content.length;
+
+          // 20260812 临时调试：监听连接是否被客户端提前关闭/出错
+          response.on('close', function () { console.log("DEBUG: response 'close' event fired for " + filename + " at " + new Date().getTime() + ", contentArrayCnt=" + contentArrayCnt + "/" + contentLength); });
+          response.on('error', function (err) { console.log("DEBUG: response 'error' event for " + filename + ": " + err); });
 
           delayInterval = 100; //设定默认控制传输速率时的采用的延时间隔,单位ms 毫秒
           dataResponse();
@@ -137,6 +144,9 @@ function dataResponse(){
   var currentTpNum = Math.floor(currentTime/1000); //当次应该选取的网速编号
   var currentThroughput = tpTrace[currentTpNum];   //单位是bps，bit每秒
   var responseNext = Math.ceil(currentThroughput*delayInterval/8000);  //单位是Byte,也就是8bit
+
+  // 20260812 临时调试
+  console.log("DEBUG dataResponse tick: contentArrayCnt=" + contentArrayCnt + "/" + contentLength + ", currentTpNum=" + currentTpNum + ", currentThroughput=" + currentThroughput + ", responseNext=" + responseNext + ", destroyed=" + (responseGlobal ? responseGlobal.destroyed : "no-response-obj"));
   //console.log("The length of the sending data is" + responseNext);
   //var responseNext = 20000;
 

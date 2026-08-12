@@ -4,7 +4,8 @@
 		<meta http-equiv="Content-Type" content="text/html">
         <meta charset="utf-8">
 	<script src="dash-js/dashPlayerVars.js"></script>
-	<script src="dash-js/mediaSourceAPIAdaptation.js"></script>	
+	<script src="dash-js/isac.js"></script>
+	<script src="dash-js/mediaSourceAPIAdaptation.js"></script>
 	<script src="dash-js/fplot_partial.js"></script>
 	<script src="dash-js/fplot_Buffer.js"></script>
 	<script src="dash-js/mpdParser.js"></script>	
@@ -31,6 +32,12 @@
 <p>
     <br>
         Bandwidth in kbps (0=infinite[estimated]): <input type="text" id="bps" value="0"> <input type="button" value="Set" onClick="javascript:setBandwidth()"></p>
+	<p>
+		<!-- 20260812 新增：ISAC 模式手动测试按钮，等真实 ISAC 数据接进来之后，这两个按钮触发的逻辑会换成真实感知结果驱动 -->
+		ISAC mode: <span id="isacModeLabel">normal</span>
+		<input type="button" value="模拟 ISAC 遮挡预警 (shadowing)" onClick="javascript:setISACMode('shadowing'); document.getElementById('isacModeLabel').innerText = isac.mode;">
+		<input type="button" value="恢复正常 (normal)" onClick="javascript:setISACMode('normal'); document.getElementById('isacModeLabel').innerText = isac.mode;">
+	</p>
 	<p>
 		<script>
 		document.write(document.getElementById("bps").value);
@@ -67,7 +74,7 @@
 		
 		 video = document.querySelector('video');  // get the first element with the element name
 		// video = document.getElementById('myVideo'); // get element by id the same performance
-		var dashPlayer = new DASHPlayer(video, "http://192.168.1.5:8080/bunny_ibmff_mixed_1080p-public-access.mpd");
+		var dashPlayer = new DASHPlayer(video, "http://" + window.location.hostname + ":8080/bunny_ibmff_mixed_1080p-public-access.mpd");
 		//var dashPlayer = new DASHPlayer(video, "http://192.168.1.103:8080/bunny_ibmff_mixed_1080p.mpd");
 		// 这里新建了一个DASHPlayer的对象 dashPlayer, 其参数为当前video元素，以及指定的mpd文件
 		// var dashPlayer = new DASHPlayer(video,"http://20689kf139.iok.la:50708/DASH-JS-master/bigbuckbunny_mp.mpd");

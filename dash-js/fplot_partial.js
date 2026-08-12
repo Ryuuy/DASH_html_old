@@ -116,8 +116,14 @@ fPlot.prototype.plot = function()
 		  {
               if(n!= 2)
               {
-                  if((this.f[n].values[i]/1024) > maxY) {
-                  	maxY = (this.f[n].values[i])/1024;   //这里一旦选到最大值了，f[n]里那个值一直存在
+                  // 20260812 新增：给 Y 轴自动扩展设一个封顶（单位 kbps）。不加这个的话，
+                  // 关掉 server7.js 限速测试时，Estimated Bandwidth(真实测速)会冲到几万 kbps，
+                  // 把坐标轴撑爆，导致 Representation Rate(蓝线，最高不过几千 kbps)被挤成贴底的一条线，
+                  // 看起来像是一直是 0。只影响画图显示范围，不影响实际码率决策。
+                  var maxYCap = 5000;
+                  var scaledVal = Math.min(this.f[n].values[i]/1024, maxYCap);
+                  if(scaledVal > maxY) {
+                  	maxY = scaledVal;   //这里一旦选到最大值了，f[n]里那个值一直存在
                                                          //所以以后不会有小于暂定最大值得
                     steppingY = maxY/8;
                     maxY = maxY*1.09;

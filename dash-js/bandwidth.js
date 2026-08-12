@@ -55,18 +55,18 @@ bandwidth.prototype.notify = function(){
 }
 
 bandwidth.prototype.calcWeightedBandwidth = function(_bps, timeID) {
-	
-	/*
+
+	// 20260812 切换为基于实测吞吐量的加权平均预测（原本被注释掉的方法），不再使用 predTrace 查表
 	// 2018.6.24 改写将来预测的方法
 	this.bpsArray[timeID] = _bps;
-    
+
     //找出属于从当前时间步往回推，在hisSize内的所有下载的segment，用这些来计算predited bps，当前只预测一秒
 	for (var i = timeID; i >= 0;i--){
 
 		if (__id[i] <= __idEnd[__idEnd.length-1]-this.hisSize*1000){
 
 			this.segStartForCalc = i;
-			break; 
+			break;
 	        }
 	}
 
@@ -82,17 +82,18 @@ bandwidth.prototype.calcWeightedBandwidth = function(_bps, timeID) {
 		denominator = denominator + (__idEnd[i] - __id[i]);
 
 	}
-	
+
 	this.bps = parseInt(numerator/denominator);
-    */
-    
-    
-    //这里用已经计算好的预设predTrace作为预测值，不通过js计算
+
+
+    /*
+    //20260812 已停用：这里用已经计算好的预设predTrace作为预测值，不通过js计算
 
     //client端以init的request发出的时刻作为起点。
-    var currentTime = new Date().getTime() - myFplot2.f[0].timeStamps[0]; 
+    var currentTime = new Date().getTime() - myFplot2.f[0].timeStamps[0];
     var currentTpNum = Math.floor(currentTime/1000); //当次预测的网速编号
     this.bps =  predTrace[currentTpNum];
+    */
 
 	// inform the observers
 	this.notify();
