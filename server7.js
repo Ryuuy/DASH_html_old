@@ -20,7 +20,7 @@ var delayInterval; // 全局的delayInterval
 var tpTrace = require('./throughputTrace/thruputTraceFerry.js'); //将thruputTrace1.js中定义的throughput读取进来到tpTrace
 
 // 20260812 新增：限速开关。true=按 tpTrace 限速（原有行为）；false=不限速，全速把文件发出去
-var THROTTLE_ENABLED = true;
+var THROTTLE_ENABLED = false;
 
 // 使用on方法注册事件处理,该事件一直被监听,任何的请求都会进入回调函数,执行相应的操作
 server.on('request', function(request, response) { // 当有request请求的时候触发处理函数  

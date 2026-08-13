@@ -2,3 +2,5 @@
 bunny_2s_1080p/video-pressed.zip
 bunny_2s_1080p/**/output*kbit.mp4
 .claude/
+__pycache__/
+*.pyc
