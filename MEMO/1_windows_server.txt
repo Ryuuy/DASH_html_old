@@ -1,0 +1,2 @@
+cd 项目目录\DASH_html_old-main
+node server7.js

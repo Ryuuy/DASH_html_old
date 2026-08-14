@@ -11,9 +11,10 @@
  *           所以刷新页面 / 重连回来都能立刻同步，不用额外发消息去"问"。
  */
 
-// 20260812 本地联调先用 127.0.0.1；等 isac_server.py 换到另一台机器上跑，
-// 把这行换回 "ws://192.168.x.x:8765/isac"（那台机器的局域网 IP）
-var ISAC_WS_URL = "ws://127.0.0.1:8765/isac";
+// 20260814 已切换：isac_server.py 跑在 Ubuntu 机器上，走有线网口 enp1s0（本地专线，非学校 WiFi）。
+// 如果这台机器的本地网 IP 变了（比如网线换口/DHCP 重新分配），要同步改这里，
+// 用 `ip -brief addr show` 查 enp1s0 对应的地址。
+var ISAC_WS_URL = "ws://192.168.1.50:8765/isac";
 
 var isacWsReconnectDelay = 1000;
 var ISAC_WS_MAX_RECONNECT_DELAY = 10000;

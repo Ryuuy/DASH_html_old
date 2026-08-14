@@ -1,0 +1,2 @@
+cd /home/usrpb210/DASH/DASH_html_old-main/isac_server
+python3 test_shadowing_at_3_5.py
