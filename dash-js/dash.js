@@ -6,11 +6,30 @@ var playbackTimePlot2;
 function updatePlaybackTime()
 {
     playbackTimePlot.update(dashInstance.videoTag.currentTime, 2);
-    
+
+    // 20260817 新增：每 0.1s 顺便记一条播放状态采样（见 telemetry.js），
+    // 并且重画第三张图（最终码率 + ISAC 状态），跟其它图同样的刷新节奏。
+    if (typeof dashTelemetry !== 'undefined') {
+        var contentTimeNow = dashInstance.videoTag.currentTime;
+        var playing = dashTelemetry.findPlayingSegment(contentTimeNow);
+        dashTelemetry.recordPlaybackSample({
+            contentTime: contentTimeNow,
+            isacMode: (typeof isac !== 'undefined') ? isac.mode : undefined,
+            isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined,
+            playingRepresentationId: playing ? playing.representationId : undefined,
+            playingBandwidth: playing ? playing.bandwidthNominal : undefined,
+            bufferFillSeconds: (typeof overlayBuffer !== 'undefined' && overlayBuffer) ? overlayBuffer.fillState.seconds : undefined,
+            bufferTargetSeconds: (typeof overlayBuffer !== 'undefined' && overlayBuffer) ? overlayBuffer.bufferSize.maxseconds : undefined
+        });
+    }
+    if (typeof myFplotShadow !== 'undefined' && myFplotShadow) {
+        myFplotShadow.plot();
+    }
+
     window.setTimeout(function () { updatePlaybackTime(); },100);
     // 每0.1s就会更新实际播放的时间plot
     //console.log(dashInstance.videoTag.currentTime);
-    
+
 }
 
 function DASH_MPD_loaded()
@@ -36,6 +55,14 @@ function DASH_MPD_loaded()
  	myFplot2.initNewFunction(0);   //曲线0就是实际数据的下载曲线
  	myFplot2.initNewFunction(1);   //曲线1就是buffer情况的曲线
     playbackTimePlot2 = myFplot2;
+
+	// 20260817 新增：第三张图——最终选中码率（阶梯线）+ ISAC 状态带（normal/shadowing/recovering），
+	// 数据直接从 dashTelemetry 里读（不是靠 observer 推，见 fplot_ShadowRate.js），
+	// 刷新由 updatePlaybackTime() 里每 0.1s 调一次 myFplotShadow.plot() 驱动，跟其它图同节奏。
+	var graph3Canvas = document.getElementById("graph3");
+	if (graph3Canvas) {
+		myFplotShadow = new fPlotShadow(graph3Canvas.getContext("2d"), graph3Canvas.width, graph3Canvas.height);
+	}
 
 	myBandwidth.addObserver(myFplot); //让myFplot观测myBandwidth的变化，一旦有新的变化，就提醒plot更新
 	

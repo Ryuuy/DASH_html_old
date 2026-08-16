@@ -22,6 +22,11 @@ var ISAC_WS_MAX_RECONNECT_DELAY = 10000;
 function connectISACWebSocket() {
 
 	var ws = new WebSocket(ISAC_WS_URL);
+	// 20260817 新增：暴露成全局，方便 telemetry.js 复用这同一条连接，把视频端的遥测数据
+	// （分片码率决策 / isac 状态事件 / 播放采样）往回推给 isac_server.py，
+	// 不用另外再开一条连接。连接断开时清掉，telemetry.js 那边发送前会检查 readyState，
+	// 连接不通就本地照常记录、不推送，不会报错。
+	window.isacWs = ws;
 
 	ws.onopen = function () {
 		console.log("ISAC WS: connected to " + ISAC_WS_URL);
@@ -44,6 +49,7 @@ function connectISACWebSocket() {
 	};
 
 	ws.onclose = function () {
+		if (window.isacWs === ws) window.isacWs = null; // 20260817 新增：断开了就清掉，telemetry.js 靠这个判断"现在能不能推"
 		console.log("ISAC WS: 连接断开，" + isacWsReconnectDelay + "ms 后重连");
 		setTimeout(connectISACWebSocket, isacWsReconnectDelay);
 		isacWsReconnectDelay = Math.min(isacWsReconnectDelay * 2, ISAC_WS_MAX_RECONNECT_DELAY);

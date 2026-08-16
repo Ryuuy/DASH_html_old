@@ -87,12 +87,24 @@ function setISACMode(mode) {
 	// 真正清空旧缓冲、去抢高清分片的动作在 confirmRecovery() 里，由实测带宽真的选出
 	// 更高码率时才触发（见 adaptationlogic.js）。
 	var enteringRecovery = (isac.mode === "shadowing" && mode === "normal");
+	var previousMode = isac.mode;
 
 	isac.mode = mode;
 	// 一旦不是"这次转场"，就把 recovering 清掉——防止上一轮恢复还没被 confirmRecovery()
 	// 确认，ISAC 又立刻重新报了一次 shadowing 时，残留的 true 把下面 applyISACBufferProfile()
 	// 挡住，导致新一轮 shadowing 该立刻放大的 buffer 目标迟迟不生效。
 	isac.recovering = enteringRecovery;
+
+	// 20260817 新增：把这次模式切换记进遥测（见 telemetry.js），供第三张图的状态带
+	// 和外部（ISAC 那边）按 wall-clock 时间对齐分析用。
+	if (typeof dashTelemetry !== 'undefined') {
+		dashTelemetry.recordIsacEvent({
+			fromMode: previousMode,
+			toMode: mode,
+			recovering: isac.recovering,
+			confirmed: false // 这里只是 ISAC 一侧发的模式切换信号，不代表"确认恢复"，confirmRecovery() 那次会传 true
+		});
+	}
 
 	if (enteringRecovery) {
 		shrinkBandwidthWindowForRecovery();
@@ -143,6 +155,9 @@ function confirmRecovery() {
 	var discardSegments = Math.floor(discardSeconds / isac.segLength);
 
 	if (discardSegments > 0) {
+		// 20260817：discard 前先记下这段将要被扔掉的内容时间范围，供下面标记 superseded 用。
+		var discardRangeEnd = adaptation.currentRepresentation.curSegment * isac.segLength; // 丢弃前，"已经抓到哪"的内容时间点
+
 		// 环形缓冲区里 first=最快要播的、last=最新囤的（还没播过的）那一头，
 		// 只回退 last、把 fillState 相应减少，扔掉的是"最新囤的、离现在最远"的那些低清分片，
 		// 离当前播放最近的一小段（keepSeconds）留着当安全垫不动
@@ -153,6 +168,25 @@ function confirmRecovery() {
 		if (adaptation.currentRepresentation.curSegment < 0) adaptation.currentRepresentation.curSegment = 0;
 
 		console.log("ISAC: confirmed recovery, discarded " + discardSegments + " stale segment(s), curSegment rewound to " + adaptation.currentRepresentation.curSegment);
+
+		// 20260817 新增：把刚被丢弃、还没真正播出来的那段决策标成 superseded（见 telemetry.js），
+		// 这样第一张/第三张图画"最终码率"时会自动跳过它们，不会再叠在一起看不清。
+		if (typeof dashTelemetry !== 'undefined') {
+			var discardRangeStart = adaptation.currentRepresentation.curSegment * isac.segLength; // 丢弃后，rewind 到的位置
+			dashTelemetry.markSuperseded(discardRangeStart, discardRangeEnd);
+		}
+	}
+
+	// 20260817 新增：把"确认恢复"这个时刻也记进遥测，confirmed:true 是和 setISACMode() 里
+	// 单纯的模式切换信号区分开的关键字段——只有这条才代表"实测带宽真的证明链路通了"。
+	if (typeof dashTelemetry !== 'undefined') {
+		dashTelemetry.recordIsacEvent({
+			fromMode: "shadowing",
+			toMode: "normal",
+			recovering: false,
+			confirmed: true,
+			discardedSegments: discardSegments > 0 ? discardSegments : 0
+		});
 	}
 
 	// 20260816 新增：确认恢复之后才真正把 buffer 目标收回 normal 的 4s（原因见 setISACMode() 里的说明）。

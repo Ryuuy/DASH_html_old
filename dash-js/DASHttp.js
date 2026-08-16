@@ -85,7 +85,8 @@ function _fetch_segment(presentation, url, video, range, buffer)
     			    myBandwidth.calcWeightedBandwidth(parseInt(mybps),this.timeID, false, segContentTime);
 
     			    // 将来改动时，会改动switchRepresentation()里的判断标准以及将来的对策
-    			    adaptation.switchRepresentation(segContentTime);
+    			    // 20260817：多传一个 mybps（这次实测吞吐），记进 dashTelemetry 用，不影响选码率判断
+    			    adaptation.switchRepresentation(segContentTime, mybps);
     			    
 			    _push_segment_to_media_source_api(buffer, data, presentation, video);
     			    
@@ -171,7 +172,8 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 		// confirmRecovery 的丢弃/回退只会影响这次 push 之后、还没发起的下一个请求，不会影响已经落盘的这一段。
 		buffer.push(data, 2);
 
-		adaptation.switchRepresentation(segContentTime);      // <--- mod this, if you wanna change the adaptation behavior ... (e. g., include buffer state, ...)
+		// 20260817：多传一个 mybps（这次实测吞吐），记进 dashTelemetry 用，不影响选码率判断
+		adaptation.switchRepresentation(segContentTime, mybps);      // <--- mod this, if you wanna change the adaptation behavior ... (e. g., include buffer state, ...)
                                               //这里，adaptation里面有个属性是指向myBandwidth的，所以不需要另外传入参数
 
         	if(adaptation.currentRepresentation.curSegment >= presentation.segmentList.segments-1) buffer.streamEnded = true; //当下载完所有seg，streamEnd被置真

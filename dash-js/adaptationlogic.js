@@ -100,7 +100,9 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 {
 	rateBasedAdaptation.prototype = new adaptationLogic(_mpd, video);
 	// 20260816：新增 xPos 参数，透传给 notify()，见该函数的说明
-	rateBasedAdaptation.prototype.switchRepresentation = function (xPos){
+	// 20260817：新增 actualThroughputBps 参数——触发这次决策的那次分片下载的实测吞吐（bps），
+	// 从 DASHttp.js 传过来，只是为了记进 dashTelemetry，不参与选码率的判断逻辑本身
+	rateBasedAdaptation.prototype.switchRepresentation = function (xPos, actualThroughputBps){
 	
 			
 			
@@ -210,8 +212,23 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
                
 				}
 			}*/
-			
 
+			// 20260817 新增：把这次的最终码率决策记进遥测（见 telemetry.js），
+			// 供第三张图（最终选中码率 + ISAC 状态）和外部同步分析用。
+			// 注意放在上面的 representation 切换块之后——这样 m 对应的就是这次真正生效的选择
+			// （这个 MPD 里所有档位分辨率都一样，恒定走 else 分支真正切换，不受 resolution NYI 影响）。
+			if (typeof dashTelemetry !== 'undefined' && typeof xPos === 'number') {
+				dashTelemetry.recordSegmentDecision({
+					contentStart: xPos,
+					contentEnd: xPos + 2, // 2 = 分片时长（秒），需要和 mpd 的 SegmentList duration 保持一致
+					representationId: m,
+					bandwidthNominal: n, // 选中档位的标称码率（bps）——在上面三条路径（shadowing 强制 / ABR 选中 / 低于最低码率兜底）里都被正确赋值成"选中档位的 bandwidth"
+					estimatedBps: _mybps,
+					actualThroughputBps: actualThroughputBps,
+					isacMode: (typeof isac !== 'undefined') ? isac.mode : undefined,
+					isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined
+				});
+			}
 
 			this.notify(xPos);
 		}
