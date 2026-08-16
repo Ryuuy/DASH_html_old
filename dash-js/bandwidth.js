@@ -44,17 +44,23 @@ bandwidth.prototype.addObserver = function (_obj){
 	
 }
 
-bandwidth.prototype.notify = function(){
+// 20260816：新增 xPos 参数，见 calcWeightedBandwidth() 里的说明
+bandwidth.prototype.notify = function(xPos){
 	if(this.observers.length > 0){
-		
+
 		for(var i=0;i< this.observers.length; i++)
 		{
-			this.observers[i].update(this.bps, this.identifier); // update 在fPlot类中有定义
+			this.observers[i].update(this.bps, this.identifier, xPos); // update 在fPlot类中有定义
 		}
 	}
 }
 
-bandwidth.prototype.calcWeightedBandwidth = function(_bps, timeID) {
+// 20260816：新增第三个参数 skipNotify，供 DASHttp.js 的超时/失败重试路径调用——
+// 那次调用只是为了让 bps 估计值如实反映"最近在挨饿"，不代表一个真正完成的分片，
+// 所以不让它触发 notify()（不然重试次数一多，第一张图的红线会画出比实际分片更多的点）。
+// 新增第四个参数 xPos：这个分片实际对应的视频内容时间点（秒），从 DASHttp.js 传过来，
+// 原样透传给 notify()，让第一张图能按真实内容时间轴画红线，而不是按调用次数当下标。
+bandwidth.prototype.calcWeightedBandwidth = function(_bps, timeID, skipNotify, xPos) {
 
 	// 20260812 切换为基于实测吞吐量的加权平均预测（原本被注释掉的方法），不再使用 predTrace 查表
 	// 2018.6.24 改写将来预测的方法
@@ -96,7 +102,9 @@ bandwidth.prototype.calcWeightedBandwidth = function(_bps, timeID) {
     */
 
 	// inform the observers
-	this.notify();
+	if (!skipNotify) {
+		this.notify(xPos);
+	}
 	return this.bps;
 }
 

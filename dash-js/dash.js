@@ -41,13 +41,15 @@ function DASH_MPD_loaded()
 	
 	adaptation.addObserver(myFplot); //让myFplot观测adaptation的变化，一旦有新的变化，就提醒plot更新
     
+    // 20260816：这几个是播放最开始（内容时间点 0 秒）的种子点，显式传 xPos=0——
+    // 第一张图现在按真实内容时间点画横坐标（不再是数组下标），不传会被当成没有坐标直接跳过不画。
     if (bps<maxBandwidth){
-    	myFplot.update(bps, 0); //强行更新第一次下载mpd时的速度bps，基于此才有switch，否则switch总是多一个observer值
+    	myFplot.update(bps, 0, 0); //强行更新第一次下载mpd时的速度bps，基于此才有switch，否则switch总是多一个observer值
     } else{
-    	myFplot.update(maxBandwidth, 0);
+    	myFplot.update(maxBandwidth, 0, 0);
     }
-	
-	adaptation.switchRepresentation(); // try to get a better representation at the beginning
+
+	adaptation.switchRepresentation(0); // try to get a better representation at the beginning
 	
 	overlayBuffer = init_mediaSourceBuffer(0, 4,4,2,dashInstance.videoTag,playbackTimePlot);
 

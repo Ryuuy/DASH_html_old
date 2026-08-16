@@ -61,6 +61,9 @@ fPlot.prototype.initNewFunction = function (type) {
 	this.f[type].values = new Array();
 	this.f[type].timeStamps = new Array();
 	this.f[type].timeStampsOver = new Array();
+	// 20260816 新增：这个点实际对应的视频内容时间点（秒），由调用方（DASHttp.js）算好传进来。
+	// 用来把横坐标画成真实的内容时间轴，而不是"这是第几个点"这种容易被重试次数打乱的下标。
+	this.f[type].xPos = new Array();
 
 }
 
@@ -71,10 +74,13 @@ fPlot.prototype.updateOnlyPlaybackTime = function(value, type)
     
 }
 
-fPlot.prototype.update = function(value, type)
+// 20260816：新增第三个参数 xPos——这个点实际对应的视频内容时间点（秒）。
+// f[2]（播放进度那根黑线）不传这个参数，因为它的 value 本来就已经是内容时间点了，直接当横坐标用。
+fPlot.prototype.update = function(value, type, xPos)
 {
-	this.f[type].values[this.f[type].cnt] = value;	
+	this.f[type].values[this.f[type].cnt] = value;
 	this.f[type].timeStamps[this.f[type].cnt] = new Date().getTime();
+	this.f[type].xPos[this.f[type].cnt] = xPos;
 	this.f[type].cnt++;
 	this.plot();
 }
@@ -203,18 +209,31 @@ fPlot.prototype.plot = function()
     }
 
     var currentRangeStart = 0;
-	var currentSegmentStart = 0;
 
-    var currentMaxTime //当前更新到的最大秒数
+    var currentMaxTime //当前更新到的最大内容时间点（秒）
     var maxX; //画布中只容纳 maxX秒的图
     var steppingX; //
     var xCut = 15; //画布中x共15个刻度
-    currentMaxTime = this.f[0].cnt;
+
+    // 20260816：横坐标改成看真实的内容时间点（xPos），不再用"这是第几个点"这种数组下标推算。
+    // 下标会被失败重试打乱（f[0]/f[3] 可能比 f[1] 多推进几次，见 DASHttp.js 里的说明），
+    // 用真实 xPos 就没有这个问题了。取 f[0]/f[1]/f[3] 里最新的 xPos，也别小于当前播放进度，
+    // 保证播放头（黑色竖线）始终落在画布范围内。
+    currentMaxTime = currentPlaybackTime;
+    for (var t = 0; t <= 3; t++) {
+    	if (t === 2) continue; // f[2] 是播放进度本身，不参与这里的比较
+    	if (this.f[t] && this.f[t].xPos && this.f[t].xPos.length > 0) {
+    		var lastXPos = this.f[t].xPos[this.f[t].xPos.length - 1];
+    		if (typeof lastXPos === 'number' && lastXPos > currentMaxTime) {
+    			currentMaxTime = lastXPos;
+    		}
+    	}
+    }
 
     //找出比currentMaxTime更大总刻度的steppingX
     for (var i = 1; i > 0; i++){
 
-    	if (i*2*xCut > currentMaxTime*2){
+    	if (i*2*xCut > currentMaxTime){
 
     		steppingX = 2*i;
     		maxX = 2*i*xCut;
@@ -301,22 +320,35 @@ fPlot.prototype.plot = function()
 		   //因为values里记录的，第0是根据mpd估计的init，第1是根据init估计的segment1
 		   //所以要从values[1]开始才是估计的segment1的速度
 		   //values[n]是根据第n-1个segment下载的真实速度来预判的第n个将会选择那个，实际下载只完成到第n-1个
-		   for(var i=currentSegmentStart+1;i<this.f[n].values.length-1;i++)
+		   // 20260816：横坐标改用 this.f[n].xPos[i]（真实内容时间点），不再用下标推算——
+		   // 每个点画成宽 2 秒（一个分片时长）的台阶，从 xPos[i] 到 xPos[i]+2。
+		   for(var i=1;i<this.f[n].values.length-1;i++)
 		  {
-		     	this.canvas.lineTo((2*(i-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[i]/(1024))/maxY)*this.graphheight);
-		        this.canvas.lineTo((2*(i+1-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[i]/(1024))/maxY)*this.graphheight);
-		    	
-	       } 
+		     	if (typeof this.f[n].xPos[i] !== 'number') continue;
+		     	var xStart = (this.f[n].xPos[i]/maxX)*this.graphwidth;
+		     	var xEnd = ((this.f[n].xPos[i]+2)/maxX)*this.graphwidth;
+		     	var yVal = ((this.f[n].values[i]/(1024))/maxY)*this.graphheight;
+		     	this.canvas.lineTo(xStart, yVal);
+		        this.canvas.lineTo(xEnd, yVal);
+
+	       }
 
 	        this.canvas.stroke();
 	        this.canvas.closePath();
-	           	
+
 	        this.canvas.setLineDash([5, 5]);
 	        this.canvas.beginPath();
-	     	this.canvas.moveTo((2*(this.f[n].values.length-1-currentSegmentStart-1)/maxX)*this.graphwidth,((this.f[n].values[this.f[n].values.length-1-1]/(1024))/maxY)*this.graphheight);
-	    	this.canvas.lineTo((2*(this.f[n].values.length-1-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[this.f[n].values.length-1]/(1024))/maxY)*this.graphheight);
-	    	this.canvas.lineTo((2*(this.f[n].values.length-1+1-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[this.f[n].values.length-1]/(1024))/maxY)*this.graphheight);
-		    	
+	        var lastIdx = this.f[n].values.length-1;
+	        if (typeof this.f[n].xPos[lastIdx] === 'number') {
+	        	var xLastStart = (this.f[n].xPos[lastIdx]/maxX)*this.graphwidth;
+	        	var xLastEnd = ((this.f[n].xPos[lastIdx]+2)/maxX)*this.graphwidth;
+	        	var yPrev = ((this.f[n].values[lastIdx-1]/(1024))/maxY)*this.graphheight;
+	        	var yLast = ((this.f[n].values[lastIdx]/(1024))/maxY)*this.graphheight;
+	        	this.canvas.moveTo(xLastStart, yPrev);
+	        	this.canvas.lineTo(xLastStart, yLast);
+	        	this.canvas.lineTo(xLastEnd, yLast);
+	        }
+
 	        this.canvas.stroke();
 	        this.canvas.closePath();
 	        this.canvas.setLineDash([]);
@@ -333,13 +365,18 @@ fPlot.prototype.plot = function()
             this.canvas.moveTo(0,0);
 		   //因为values里记录的，第0init，第1是segment1
 		   //所以要从values[1]开始才是估计的segment1的速度
+		   // 20260816：横坐标改用 this.f[n].xPos[i]（真实内容时间点），理由同上面 n==0/1 的说明。
 
-		    for(var i=currentSegmentStart+1;i<this.f[n].values.length;i++)
+		    for(var i=1;i<this.f[n].values.length;i++)
 		   {
-		     	this.canvas.lineTo((2*(i-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[i]/(1024))/maxY)*this.graphheight);
-		        this.canvas.lineTo((2*(i+1-currentSegmentStart-1)/maxX)*this.graphwidth, ((this.f[n].values[i]/(1024))/maxY)*this.graphheight);
-		    	
-	        } 
+		     	if (typeof this.f[n].xPos[i] !== 'number') continue;
+		     	var xStart = (this.f[n].xPos[i]/maxX)*this.graphwidth;
+		     	var xEnd = ((this.f[n].xPos[i]+2)/maxX)*this.graphwidth;
+		     	var yVal = ((this.f[n].values[i]/(1024))/maxY)*this.graphheight;
+		     	this.canvas.lineTo(xStart, yVal);
+		        this.canvas.lineTo(xEnd, yVal);
+
+	        }
 
 	        this.canvas.stroke();
 	        this.canvas.closePath();

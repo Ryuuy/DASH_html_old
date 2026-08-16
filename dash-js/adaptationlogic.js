@@ -68,12 +68,15 @@ adaptationLogic.prototype.addObserver = function(_obj){
 	
 }
 
-adaptationLogic.prototype.notify = function() {
+// 20260816：新增 xPos 参数——这个分片实际对应的视频内容时间点（秒），从 DASHttp.js
+// 一路传过来（见 switchRepresentation() 和 DASHttp.js 里的说明），让第一张图（fplot_partial.js）
+// 能按真实的内容时间轴画蓝线，而不是按"这是第几次调用"这种容易被重试次数打乱的下标。
+adaptationLogic.prototype.notify = function(xPos) {
 	if(this.observers.length > 0){
-		
+
 		for(var i=0;i< this.observers.length; i++)
 		{
-			this.observers[i].update(parseInt(this.currentRepresentation.bandwidth), this.identifier);
+			this.observers[i].update(parseInt(this.currentRepresentation.bandwidth), this.identifier, xPos);
 		}
 	}
 }
@@ -96,7 +99,8 @@ adaptationLogic.prototype._getNextChunkP = function (presentation, count){
 function init_rateBasedAdaptation(_mpd, video, bandwidth)
 {
 	rateBasedAdaptation.prototype = new adaptationLogic(_mpd, video);
-	rateBasedAdaptation.prototype.switchRepresentation = function (){
+	// 20260816：新增 xPos 参数，透传给 notify()，见该函数的说明
+	rateBasedAdaptation.prototype.switchRepresentation = function (xPos){
 	
 			
 			
@@ -137,6 +141,14 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 		      	m = this.lowestRepresentationID;
             }
 
+			}
+
+			// 20260815 新增：ISAC 从 shadowing 切回 normal 后，只有当这里按实测带宽真的选出了
+			// 比最低码率更高的档位，才算"确认链路真的恢复了"——不是 isac.mode 一变 normal 就信。
+			// isac.recovering 为 false（不在"待确认"状态）或者 shadowing 分支强制选中最低码率时，
+			// 这个条件天然不成立，不会误触发。
+			if (typeof isac !== 'undefined' && isac.recovering && m !== this.lowestRepresentationID) {
+				confirmRecovery();
 			}
 
 			console.log("n: " + n + ", m:" + m);
@@ -201,7 +213,7 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 			
 
 
-			this.notify();
+			this.notify(xPos);
 		}
 
 	ratebased = new rateBasedAdaptation(bandwidth);
