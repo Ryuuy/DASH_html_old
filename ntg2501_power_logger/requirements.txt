@@ -1,0 +1,7 @@
+# snmp_discover.py / snmp_diff.py / rate_probe.py / ntg2501_logger.py 都只用标准库
+# （subprocess/csv/argparse/concurrent.futures），不需要装任何 pip 包——
+# 真正需要装的是系统级的 Net-SNMP 命令行工具，见 README.md 的安装说明，
+# 那个不是 pip 包，pip install 装不出来。
+
+# 只有画图需要这个：
+matplotlib>=3.7
