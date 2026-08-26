@@ -28,6 +28,10 @@ var dashTelemetry = (function () {
 	var segments = [];        // 每个分片的最终码率决策记录
 	var isacEvents = [];      // isac 模式变化事件
 	var playbackSamples = []; // 周期性播放状态采样
+	// 20260826 新增：三路"要不要判定为 shadow"的原始判断记录——source 区分是哪一路
+	// （'isac_prediction' / 'dBFS' / 'power'，见 dash-js/shadowInputs.js），不是互相替代关系，
+	// 只是各自独立地把"这一刻的原始值 + 判出来的结果"记下来，供论文里比较三种方法谁更早/更准。
+	var shadowJudgments = [];
 	var maxKeep = 20000;      // 防止长时间播放把内存占满，超过就丢最老的（先进先出），不影响已经推送出去的部分
 
 	function trim(arr) {
@@ -54,6 +58,7 @@ var dashTelemetry = (function () {
 		if (kind === "segment") { segments.push(record); trim(segments); }
 		else if (kind === "isacEvent") { isacEvents.push(record); trim(isacEvents); }
 		else if (kind === "playbackSample") { playbackSamples.push(record); trim(playbackSamples); }
+		else if (kind === "shadowJudgment") { shadowJudgments.push(record); trim(shadowJudgments); }
 
 		sendOverWs(record);
 		return record;
@@ -95,6 +100,13 @@ var dashTelemetry = (function () {
 		return pushAndSend("playbackSample", rec);
 	}
 
+	// 20260826 新增：见 dash-js/shadowInputs.js 的 feedDBFS() / feedPowerShadow()。
+	// rec 期望包含：source ('isac_prediction' | 'dBFS' | 'power'), rawValue, judgedShadow,
+	//              thresholdUsed
+	function recordShadowJudgment(rec) {
+		return pushAndSend("shadowJudgment", rec);
+	}
+
 	// 给"最终播放码率"这张图用：在给定的内容时间点，找最后一条没被废弃、
 	// 且覆盖这个时间点的分片决策记录（"最后一条"是因为同一段内容如果被重新决策过，
 	// 数组里可能有旧的 superseded 记录排在前面，新记录排在后面）
@@ -112,8 +124,10 @@ var dashTelemetry = (function () {
 	function getSnapshot() {
 		return {
 			generatedAt: nowWall(),
+			testEpochWallClock: (typeof window !== 'undefined') ? window.__dashTestEpoch : undefined,
 			segments: segments.slice(),
 			isacEvents: isacEvents.slice(),
+			shadowJudgments: shadowJudgments.slice(),
 			playbackSamples: playbackSamples.slice()
 		};
 	}
@@ -128,12 +142,14 @@ var dashTelemetry = (function () {
 		markSuperseded: markSuperseded,
 		recordIsacEvent: recordIsacEvent,
 		recordPlaybackSample: recordPlaybackSample,
+		recordShadowJudgment: recordShadowJudgment,
 		findPlayingSegment: findPlayingSegment,
 		getSnapshot: getSnapshot,
 		exportJSON: exportJSON,
 		// 直接暴露数组引用，方便画图代码高频读取时不用每次都拷贝一份
 		segments: segments,
 		isacEvents: isacEvents,
+		shadowJudgments: shadowJudgments,
 		playbackSamples: playbackSamples
 	};
 

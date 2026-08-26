@@ -78,6 +78,13 @@ function endBitrateMeasurementByID(id, lengthInBytes, skipFirstGraphPlot, xPos){
 	myFplot2.updateBps(__id[id], end, downloadBps);
 	if (!skipFirstGraphPlot) {
 		myFplot.update(downloadBps, 3, xPos); // 图一中增加一个真实速率的
+
+		// 20260826 新增：同一份实测吞吐，单独记一份给第五张图（fplot_NetSpeed.js）用，
+		// 不复用 myFplot.f[3]——这份数据的目的是"攒起来导出、供复现"，跟图一的显示逻辑分开，
+		// 避免以后图一的画法一改，这边导出的数据也被连带影响
+		if (typeof myFplotNetSpeed !== 'undefined' && myFplotNetSpeed) {
+			myFplotNetSpeed.recordSample(xPos, xPos + 2, end, downloadBps);
+		}
 	}
 
 

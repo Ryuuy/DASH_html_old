@@ -156,16 +156,20 @@ async def isac_ws(websocket: WebSocket):
         _clients.discard(websocket)
 
 
-async def _broadcast(mode: str):
-    payload = json.dumps({"mode": mode, "ts": time.time()})
+async def _broadcast_payload(payload: dict):
+    text = json.dumps(payload)
     dead = []
     for ws in list(_clients):
         try:
-            await ws.send_text(payload)
+            await ws.send_text(text)
         except Exception:
             dead.append(ws)
     for ws in dead:
         _clients.discard(ws)
+
+
+async def _broadcast(mode: str):
+    await _broadcast_payload({"mode": mode, "ts": time.time()})
 
 
 def push_result(mode: str):
@@ -190,6 +194,55 @@ def push_result(mode: str):
         # 而 _broadcast 是要跑在 uvicorn 那个 asyncio 事件循环里的协程，
         # 用 run_coroutine_threadsafe 把它安全地丢过去执行，避免跨线程直接碰 asyncio 对象。
         asyncio.run_coroutine_threadsafe(_broadcast(mode), _loop)
+
+
+def push_dBFS(value: float, wall_clock_ms: float | None = None):
+    """
+    20260826 新增。从 USRP 实时链路（RealtimeISAC/realtime/rt_main.py 的
+    power_mon.inst，见该文件里的调用）同步调用即可，不用管 asyncio，用法跟
+    push_result 一样。
+
+    跟 push_result 的关键区别：push_result 只在 mode 变化时才广播（mode 是离散
+    状态，没变化就没必要发）；这里**每次调用都广播，不做任何去重/节流**——dBFS
+    是连续量，这条通道存在的目的就是拿来跟 Doppler 的 present 判决（有 debounce，
+    见 rt_config.py 的 debounce_* 参数，天生有零点几秒延迟）比反应速度，任何一次
+    调用被吞掉都会让这个对比失真。上游（rt_main.py）想控制发送频率的话，在那边
+    控制调用 push_dBFS() 的频率，不要在这里加节流。
+
+    wall_clock_ms 不传就用这台机器自己的 time.time()*1000。**必须是毫秒**——
+    跟浏览器那边 Date.now() 对齐用的，不是 push_result 广播里 "ts" 字段那种秒
+    （见 dash-js/shadowInputs.js 的 feedDBFS()，还有 snapshots_FORMAT.md 里
+    "时间基准"那节，单位错了两边时间戳会全部差 1000 倍）。
+    """
+    payload = {
+        "dBFS": value,
+        "wallClock": wall_clock_ms if wall_clock_ms is not None else time.time() * 1000,
+    }
+    if _loop is not None:
+        asyncio.run_coroutine_threadsafe(_broadcast_payload(payload), _loop)
+
+
+def push_power(value: float, wall_clock_ms: float | None = None):
+    """
+    20260826 新增。从 USRP 实时链路（RealtimeISAC/realtime/rt_main.py 的
+    downlink_power.inst——sensing channel 在下行时隙的瞬时 dBFS，见
+    rt_detect.py 的 DownlinkPower）同步调用即可，用法和 push_dBFS 一样。
+
+    这一路跟 push_dBFS 是两个独立通道：push_dBFS 喂的是上行（reference
+    channel）的功率，服务"跟 Doppler 判决比反应速度"这个目的；这一路喂的是
+    下行（sensing channel）的功率，服务"用功率判断有没有遮挡"这个目的
+    （对应浏览器 dash-js/shadowInputs.js 的 feedPowerShadow()）。两条各自
+    独立广播，不做互相依赖，也不做任何去重/节流——跟 push_dBFS 同样的理由：
+    这是连续量，节流交给上游控制发送频率。
+
+    wall_clock_ms 同 push_dBFS：不传就用本机 time.time()*1000，必须是毫秒。
+    """
+    payload = {
+        "power": value,
+        "wallClock": wall_clock_ms if wall_clock_ms is not None else time.time() * 1000,
+    }
+    if _loop is not None:
+        asyncio.run_coroutine_threadsafe(_broadcast_payload(payload), _loop)
 
 
 def _run_server(host: str, port: int):

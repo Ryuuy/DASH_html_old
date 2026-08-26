@@ -46,6 +46,17 @@ function connectISACWebSocket() {
 			var label = document.getElementById('isacModeLabel');
 			if (label) label.innerText = isac.mode;
 		}
+
+		// 20260826 新增：同一条连接上，如果消息带了 dBFS 或 power 字段，转发给
+		// shadowInputs.js 里两路独立的阈值判断（见该文件说明）。跟上面的 data.mode
+		// 不互斥——一条消息理论上可以同时带 mode（ISAC 自己的预测结论）和
+		// dBFS/power（供另外两路各自独立判断用的原始读数）。
+		if (data && typeof data.dBFS === 'number' && typeof feedDBFS === 'function') {
+			feedDBFS(data.dBFS, data.wallClock);
+		}
+		if (data && typeof data.power === 'number' && typeof feedPowerShadow === 'function') {
+			feedPowerShadow(data.power, data.wallClock);
+		}
 	};
 
 	ws.onclose = function () {

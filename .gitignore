@@ -4,3 +4,7 @@ bunny_2s_1080p/**/output*kbit.mp4
 .claude/
 __pycache__/
 *.pyc
+
+# 20260827 新增：server7.js 每次用 `node server7.js > server7.log` 重启都会重写，
+# 纯运行时日志，不是要留档的东西
+server7.log

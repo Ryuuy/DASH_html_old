@@ -3,14 +3,19 @@
 		<title>ITEC @ AAU | DASH-JS Showcase </title>
 		<meta http-equiv="Content-Type" content="text/html">
         <meta charset="utf-8">
-	<script src="dash-js/dashPlayerVars.js"></script>
+	<script src="dash-js/dashPlayerVars.js"></script> <!-- 这里面第一行就把 window.__dashTestEpoch 记下来了，务必是第一个加载的 script -->
+	<script src="dash-js/sessionAutoSave.js"></script> <!-- 20260827 新增：刷新网页就自动建一个按时间命名的文件夹，定期把这次测试的数据存进 server7.js 本地的 sessions/ 目录 -->
 	<script src="dash-js/telemetry.js"></script> <!-- 20260817 新增：统一的遥测数据出口，isac.js/adaptationlogic.js/DASHttp.js/dash.js 都会写进去，要在它们之前加载 -->
 	<script src="dash-js/isac.js"></script>
+	<script src="dash-js/shadowInputs.js"></script> <!-- 20260826 新增：dBFS / power 两路独立的遮挡判断入口，要在 isac_ws_client.js 之前加载（它会转发消息过来） -->
 	<script src="dash-js/isac_ws_client.js"></script> <!-- 20260812 新增：接真实 ISAC WebSocket 推送，见 isac_server.py -->
 	<script src="dash-js/mediaSourceAPIAdaptation.js"></script>
 	<script src="dash-js/fplot_partial.js"></script>
 	<script src="dash-js/fplot_Buffer.js"></script>
 	<script src="dash-js/fplot_ShadowRate.js"></script> <!-- 20260817 新增：第三张图，最终选中码率 + ISAC 状态带 -->
+	<script src="dash-js/fplot_BufferByRep.js"></script> <!-- 20260826 新增：第四张图，剩余 buffer 按码率堆叠的面积图 -->
+	<script src="dash-js/fplot_NetSpeed.js"></script> <!-- 20260826 新增：第五张图，实测网速，可导出成 throughputTrace 复现 -->
+	<script src="dash-js/snapshotExport.js"></script> <!-- 20260826 新增：把 ISAC 状态/图四/图五打包成一份带时间戳的 JSON 文件，见 snapshots_FORMAT.md -->
 	<script src="dash-js/mpdParser.js"></script>
 	<script src="dash-js/bandwidth.js"></script>
 	<script src="dash-js/adaptationlogic.js"></script>
@@ -66,6 +71,22 @@
 	<br>
 	 <!-- 20260817 新增：第三张图——最终选中码率 + ISAC 状态带，见 dash-js/fplot_ShadowRate.js -->
 	 <canvas id="graph3" width="800" height="300"></canvas>
+
+	<br>
+	<br>
+	 <!-- 20260826 新增：第四张图——剩余 buffer 按码率堆叠的面积图，见 dash-js/fplot_BufferByRep.js -->
+	 <canvas id="graph4" width="800" height="300"></canvas>
+
+	<br>
+	<br>
+	 <!-- 20260826 新增：第五张图——实测网速，见 dash-js/fplot_NetSpeed.js -->
+	 <canvas id="graph5" width="800" height="300"></canvas>
+	 <br>
+	 <input type="button" value="Export Network Trace (download .js + console)" onclick="if(typeof myFplotNetSpeed!=='undefined' && myFplotNetSpeed) myFplotNetSpeed.downloadTraceFile();">
+	 <br>
+	 <!-- 20260826 新增：一次性打包 ISAC 状态 + 图四（buffer 堆叠历史）+ 图五（网速，粗+细粒度）
+	      成一份带时间戳的 JSON，格式说明见项目根目录 snapshots_FORMAT.md -->
+	 <input type="button" value="Save Full Snapshot (ISAC state + buffer-by-rep + net speed, timestamped JSON)" onclick="if(typeof downloadFullSnapshot==='function') downloadFullSnapshot();">
     </p>
 		<script>
  		document.getElementById("bps").value = maxBandwidth/1024;

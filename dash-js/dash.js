@@ -26,6 +26,15 @@ function updatePlaybackTime()
         myFplotShadow.plot();
     }
 
+    // 20260826 新增：第四张（剩余 buffer 按码率堆叠）、第五张（实测网速）图，
+    // 跟第三张图同节奏，每 0.1s 重画一次
+    if (typeof myFplotBufferRep !== 'undefined' && myFplotBufferRep) {
+        myFplotBufferRep.plot(dashInstance.videoTag.currentTime);
+    }
+    if (typeof myFplotNetSpeed !== 'undefined' && myFplotNetSpeed) {
+        myFplotNetSpeed.plot();
+    }
+
     window.setTimeout(function () { updatePlaybackTime(); },100);
     // 每0.1s就会更新实际播放的时间plot
     //console.log(dashInstance.videoTag.currentTime);
@@ -62,6 +71,25 @@ function DASH_MPD_loaded()
 	var graph3Canvas = document.getElementById("graph3");
 	if (graph3Canvas) {
 		myFplotShadow = new fPlotShadow(graph3Canvas.getContext("2d"), graph3Canvas.width, graph3Canvas.height);
+	}
+
+	// 20260826 新增：第四张图——剩余 buffer 按码率堆叠的面积图（见 fplot_BufferByRep.js）。
+	// 需要按 bandwidth 从高到低排好序的档位表：repLadder[0] 是最高码率，堆叠在最下面。
+	var graph4Canvas = document.getElementById("graph4");
+	if (graph4Canvas) {
+		var repList = dashInstance.mpdLoader.mpdparser.pmpd.period[0].group[0].representation;
+		var repLadder = [];
+		for (var ri = 0; ri < repList.length; ri++) {
+			repLadder.push({ id: ri, bandwidth: parseInt(repList[ri].bandwidth) });
+		}
+		repLadder.sort(function (a, b) { return b.bandwidth - a.bandwidth; });
+		myFplotBufferRep = new fPlotBufferByRep(graph4Canvas.getContext("2d"), graph4Canvas.width, graph4Canvas.height, repLadder);
+	}
+
+	// 20260826 新增：第五张图——实测网速（见 fplot_NetSpeed.js）
+	var graph5Canvas = document.getElementById("graph5");
+	if (graph5Canvas) {
+		myFplotNetSpeed = new fPlotNetSpeed(graph5Canvas.getContext("2d"), graph5Canvas.width, graph5Canvas.height);
 	}
 
 	myBandwidth.addObserver(myFplot); //让myFplot观测myBandwidth的变化，一旦有新的变化，就提醒plot更新

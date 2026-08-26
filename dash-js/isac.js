@@ -174,6 +174,12 @@ function confirmRecovery() {
 		if (typeof dashTelemetry !== 'undefined') {
 			var discardRangeStart = adaptation.currentRepresentation.curSegment * isac.segLength; // 丢弃后，rewind 到的位置
 			dashTelemetry.markSuperseded(discardRangeStart, discardRangeEnd);
+
+			// 20260826 新增：同一段被废弃的内容范围，也从第四张图（剩余 buffer 按码率堆叠）里剔除——
+			// 这些分片从没真正播出来过，不该继续算进"剩余 buffer"
+			if (typeof myFplotBufferRep !== 'undefined' && myFplotBufferRep) {
+				myFplotBufferRep.markDiscarded(discardRangeStart, discardRangeEnd);
+			}
 		}
 	}
 

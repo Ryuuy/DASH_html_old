@@ -5,9 +5,22 @@
 // 首先加载所有需要用到的模块
 var http = require('http');    // 加载http服务api模块
 var fs = require('fs');      // 加载fs文件服务api模块
+var path = require('path');  // 20260827 新增：session 自动保存要拼文件夹路径
 var server = new http.Server();  // 创建新的HTTP服务器
 var urlapi = require('url');    // 创建url路由api模块
 server.listen(8080);       // 监听端口8000
+
+// 20260827 新增：网页每次刷新自动建一个按时间命名的文件夹，定期把这次测试的
+// 数据整份存进去，见下面 /api/session/save 和 dash-js/sessionAutoSave.js。
+// 只允许写进这个目录下面，文件名也是白名单——sessionId/filename 都是前端传来的，
+// 不做校验的话理论上能拼出 "../../别的地方" 这种路径去写任意文件，虽然只是
+// 本地实验室工具，这个校验成本很低，还是做一下。
+var SESSIONS_DIR = path.join(__dirname, 'sessions');
+var SESSION_ID_RE = /^[0-9_-]+$/;
+var ALLOWED_SESSION_FILENAMES = [
+  'meta.json', 'buffer_by_rep.json', 'net_speed.json',
+  'doppler_shadow_events.json', 'power_dbfs_judgments.json'
+];
 
 var htmlStartTime; // 用来记录每次首次请求视频网页的时间，进而从此开始通过response的写入，控制网速
 var segStartTime;  // 用来记录每次首次请求segment的时间
@@ -22,6 +35,16 @@ var tpTrace = require('./throughputTrace/thruputTraceFerry.js'); //将thruputTra
 // 20260812 新增：限速开关。true=按 tpTrace 限速（原有行为）；false=不限速，全速把文件发出去
 var THROTTLE_ENABLED = false;
 
+// 20260826 新增：回答"这个网速是不是 2 秒一次"——不是，tpTrace 是"每 TRACE_SAMPLE_INTERVAL_MS
+// 毫秒一个值"，跟分片时长（2秒）完全没关系，只是巧合地都是小数字。默认 1000（1秒一档），
+// 跟 throughputTrace/thruputTraceFerry.js 这类老 trace 文件的格式对上（数组第 i 项 = 第 i 秒
+// 的目标 bps）。想更精细，就配一个 bucketMs 更小的新 trace 文件（比如 dash-js/fplot_NetSpeed.js
+// 的 downloadTraceFile() 导出的那种，文件开头会带 traceIntervalMs 告诉你该配多少），
+// 这里改成一样的值即可——两边必须一致，不然 currentTpNum 算出来的下标会跟 trace 数组本身的
+// 采样间隔对不上，读到的目标 bps 就是错的（比如 trace 是 200ms 一档却按 1000ms 一档去读，
+// 播放 5 倍速的“网速”变化，跟实际录到的完全不是一回事）。
+var TRACE_SAMPLE_INTERVAL_MS = 1000;
+
 // 使用on方法注册事件处理,该事件一直被监听,任何的请求都会进入回调函数,执行相应的操作
 server.on('request', function(request, response) { // 当有request请求的时候触发处理函数  
   // 解析请求的URL
@@ -31,7 +54,42 @@ server.on('request', function(request, response) { // 当有request请求的时�
   // 这种连续的两次取时间 new Date().getTime()得到的结果是一样的。
   var timeRequestReceived = new Date().getTime();
   console.log("Request Received for: " + url.pathname + "  at: " + new Date().getTime());
- 
+
+  // 20260827 新增：session 自动保存端点，POST /api/session/save，
+  // body: {sessionId, filename, data}。跟下面的静态文件 switch 是分开的
+  // 路径——POST 请求不该被当成"求某个文件名的静态资源"塞进 fs.readFile()
+  // 那条 default 分支，所以在 switch 之前拦掉，处理完直接 return 不往下走。
+  if (request.method === 'POST' && url.pathname === '/api/session/save') {
+    var chunks = [];
+    request.on('data', function (chunk) { chunks.push(chunk); });
+    request.on('end', function () {
+      try {
+        var payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+        var sessionId = payload.sessionId;
+        var filename = payload.filename;
+
+        if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
+          throw new Error('非法 sessionId: ' + sessionId);
+        }
+        if (ALLOWED_SESSION_FILENAMES.indexOf(filename) === -1) {
+          throw new Error('非法 filename: ' + filename);
+        }
+
+        var dir = path.join(SESSIONS_DIR, sessionId);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, filename), JSON.stringify(payload.data, null, 2), 'utf-8');
+
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=UTF-8' });
+        response.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        console.log('session save 失败: ' + e);
+        response.writeHead(400, { 'Content-Type': 'application/json; charset=UTF-8' });
+        response.end(JSON.stringify({ ok: false, error: String(e) }));
+      }
+    });
+    return;
+  }
+
   // 特殊URL会让服务器在发送响应前先等待
   switch(url.pathname) {  //判断请求的路径信息
   case ''||'/' : // 处理请求的网站根目录,指定加载对应的文件夹,一般以根目录的index.html为默认,nodejs是高效流处理的方案,也可以通过配置文件来配置
@@ -141,7 +199,7 @@ function getType(endTag){
 function dataResponse(){
 
   var currentTime = new Date().getTime() - segStartTime; //当次发送response时距离Seg1 Request接收到的时间
-  var currentTpNum = Math.floor(currentTime/1000); //当次应该选取的网速编号
+  var currentTpNum = Math.floor(currentTime/TRACE_SAMPLE_INTERVAL_MS); //当次应该选取的网速编号
   var currentThroughput = tpTrace[currentTpNum];   //单位是bps，bit每秒
   var responseNext = Math.ceil(currentThroughput*delayInterval/8000);  //单位是Byte,也就是8bit
 

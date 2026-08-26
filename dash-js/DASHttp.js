@@ -117,6 +117,12 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 
 	retryDelay = retryDelay || SEGMENT_RETRY_INITIAL_DELAY_MS;
 
+	// 20260826 新增：给下面 rateInProgress() 用的近似内容时间点——发起请求这一刻
+	// curSegment 指向的就是这次要抓的分片，跟 onload 里 segContentTime 算法一致。
+	// 只是"近似"：真实下载过程中内容时间不会变（一次请求对应一个 2 秒的分片），
+	// 这里只是给细粒度网速图/导出的每个进度采样点一个可用的横坐标。
+	var segContentTimeForProgress = adaptation.currentRepresentation.curSegment * 2;
+
     console.log('DASH JS Client fetching segment: ' + url);
 	var xhr = new XMLHttpRequest();
 	xhr.timeID = _timeID;
@@ -172,6 +178,15 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 		// confirmRecovery 的丢弃/回退只会影响这次 push 之后、还没发起的下一个请求，不会影响已经落盘的这一段。
 		buffer.push(data, 2);
 
+		// 20260826 新增：在 switchRepresentation()（可能改 adaptation.representationID）之前，
+		// 把"这个刚下载完、已经 push 进 buffer 的分片，是用哪个档位抓的"记下来，供第四张图
+		// （fplot_BufferByRep.js）画"剩余 buffer 按码率堆叠"用。必须放在这一行，不能放调用之后——
+		// 理由同 fplot_BufferByRep.js 文件头注释：这里的 adaptation.representationID 还没被这次
+		// switchRepresentation() 重新赋值，对应的正是这个分片实际用的档位，不会有错位。
+		if (typeof myFplotBufferRep !== 'undefined' && myFplotBufferRep) {
+			myFplotBufferRep.recordFetchedSegment(segContentTime, segContentTime + 2, adaptation.representationID);
+		}
+
 		// 20260817：多传一个 mybps（这次实测吞吐），记进 dashTelemetry 用，不影响选码率判断
 		adaptation.switchRepresentation(segContentTime, mybps);      // <--- mod this, if you wanna change the adaptation behavior ... (e. g., include buffer state, ...)
                                               //这里，adaptation里面有个属性是指向myBandwidth的，所以不需要另外传入参数
@@ -207,8 +222,9 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 
 
 	xhr.addEventListener("progress", rateInProgress);
-    
+
     var loadedPrev = 0; // 每一次请求发出后，就把这个loadPrev置零
+    var prevTickWallClock = null; // 20260826 新增：上一次 progress 事件的墙钟时间，算 tick 间的瞬时速率用
 	function rateInProgress(e) {
         if (e.lengthComputable) {
            //var percentComplete = e.loaded / e.total * 100;
@@ -216,13 +232,32 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
              // ...
           } else {
          // Unable to compute progress information since the total size is unknown
-         
+         // 20260826 注：server7.js 的响应没设 Content-Length（走 chunked），所以浏览器这边
+         // e.lengthComputable 恒为 false，实际记录数据的就是这个分支——下面这份 progressData
+         // 数组以前只喂给 create_logs.js 的原始文本导出，现在多了一个真正的用途：算出比
+         // "一个分片一个平均值（2秒一个点）"细得多的瞬时网速采样，见下面对 myFplotNetSpeed 的调用
+
          var loadedThisTime = e.loaded - loadedPrev;
+         var nowTick = new Date().getTime();
          progressData[progressCnt] = loadedThisTime;
-         progressTimeStamp[progressCnt] = new Date().getTime();
+         progressTimeStamp[progressCnt] = nowTick;
          //progressTimeStamp[progressCnt] = e.timeStamp;
          progressTimeID[progressCnt] = xhr.timeID;
          //console.log("The received data onProgress is " + loadedThisTime + " at timing of " + e.timeStamp);
+
+         // 20260826 新增：算这一小段 tick 之间的瞬时 bps，喂给第五张图（细粒度网速）。
+         // 第一个 tick 没有"上一个 tick"可比，跳过（等下一个 tick 才有有效区间）。
+         if (prevTickWallClock !== null && loadedThisTime > 0) {
+             var deltaMs = nowTick - prevTickWallClock;
+             if (deltaMs > 0) {
+                 var instBps = (loadedThisTime * 8 / deltaMs) * 1000;
+                 if (typeof myFplotNetSpeed !== 'undefined' && myFplotNetSpeed) {
+                     myFplotNetSpeed.recordFineSample(prevTickWallClock, nowTick, segContentTimeForProgress, instBps);
+                 }
+             }
+         }
+         prevTickWallClock = nowTick;
+
          loadedPrev = e.loaded;
          progressCnt++;
 
