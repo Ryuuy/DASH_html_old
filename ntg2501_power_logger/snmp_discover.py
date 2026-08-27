@@ -5,7 +5,7 @@
 用哪个 community 能读，再把私有 MIB 子树整棵存下来，供人工/snmp_diff.py 比对，
 找出哪个 OID 是 Slave 发射功率、哪个是 Master 接收功率。
 
-用法（都在装好 Net-SNMP 命令行工具、人在实验室能连上 192.168.0.x 之后跑）：
+用法（都在装好 Net-SNMP 命令行工具、人在实验室能连上 192.168.1.x 之后跑）：
 
     # 1. 先确认两台设备哪个 community 能用（默认试 public / public2 / public3）
     python snmp_discover.py probe
@@ -20,8 +20,8 @@
     python snmp_diff.py dumps\\slave_baseline_*.txt dumps\\slave_blocked_*.txt
     python snmp_diff.py dumps\\master_baseline_*.txt dumps\\master_blocked_*.txt
 
-IP 默认取自 NTG2501_SNMP_Claude_Prompt.md 里给的地址（Slave 192.168.0.101 /
-Master 192.168.0.201），可以用 --slave-ip / --master-ip 覆盖。
+IP 默认取自 NTG2501_SNMP_Claude_Prompt.md 里给的地址（Slave 192.168.1.101 /
+Master 192.168.1.201），可以用 --slave-ip / --master-ip 覆盖。
 """
 
 import argparse
@@ -31,8 +31,8 @@ import sys
 
 from snmp_common import require_tools, run_snmp_cmd
 
-DEFAULT_SLAVE_IP = "192.168.0.101"
-DEFAULT_MASTER_IP = "192.168.0.201"
+DEFAULT_SLAVE_IP = "192.168.1.101"
+DEFAULT_MASTER_IP = "192.168.1.201"
 DEFAULT_COMMUNITIES = ("public", "public2", "public3")
 
 # 标准 SNMP system OID，不管什么设备只要支持 SNMP 基本都有，用来先验证

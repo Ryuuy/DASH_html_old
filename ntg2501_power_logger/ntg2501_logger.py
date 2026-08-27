@@ -30,8 +30,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from snmp_common import require_tools, snmpget_value, parse_scaled_float
 
-DEFAULT_SLAVE_IP = "192.168.0.101"
-DEFAULT_MASTER_IP = "192.168.0.201"
+DEFAULT_SLAVE_IP = "192.168.1.101"
+DEFAULT_MASTER_IP = "192.168.1.201"
 
 # 20260826：故意留成明显的占位符，不猜真实 OID——找到之前这两个值必须
 # 通过 --slave-tx-oid / --master-rx-oid 显式传入，见 main() 里的检查。

@@ -21,7 +21,7 @@ snmpget 子进程开销是 15ms，就算设备本身 1000Hz 更新，这个方�
 SNMP 库（比如验证过 API 之后的 pysnmp），不在这次范围内。
 
 用法：
-    python rate_probe.py --host 192.168.0.201 --oid <MASTER_RX_OID> --community public --period 0.05 --duration 10
+    python rate_probe.py --host 192.168.1.201 --oid <MASTER_RX_OID> --community public --period 0.05 --duration 10
 """
 
 import argparse

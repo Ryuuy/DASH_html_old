@@ -25,29 +25,102 @@
 判断方法"。这个文件夹跟那两个仓库**代码上完全独立**，不 import 任何东西，
 只是数据最终会放在一起对比分析。）
 
-## 现在的状态（写给未来的我 / 接手的人）
+## 现在的状态（20260827 实测更新）
 
-**还没在真机上跑过、还没验证过。** 这里在家里写的，手边没有 `192.168.0.x`
-网络，SNMP OID、community、数值缩放约定全都未知——这些**必须**去实验室、
-接上 NTG-2501 的管理网络之后，跑 Phase 1 才能拿到。
+**SNMP 那条路走不通，已经换成 HTTP，并且已经在真机上跑通验证过了。**
+要记录数据，用 `ntg2501_http_logger.py`，不要用 `ntg2501_logger.py`。
 
-已经做的：
-- 整套工具（发现 / 对比 / 测速 / 记录 / 画图）已经写完，逻辑上应该能跑，
-  但一行都没有在真实 NTG-2501 上执行过，语法之外没有别的验证。
-- 刻意选了 subprocess 调 Net-SNMP 命令行工具而不是 pysnmp 这个 Python 库——
-  pysnmp 最近几年 API 大改过，没法在没有真实设备的情况下确认哪套调用方式
-  在当前版本能跑，风险太大；命令行工具的接口二十多年没变过，可预测性高得多。
-  代价见下面"轮询速率的真实上限"。
+### 实测环境
 
-还没做的（下一个来处理这个文件夹的人，不管是我自己还是别的 Claude session，
-优先做这些）：
-1. 去实验室，跑 `snmp_discover.py probe` 确认两台设备到底支不支持 SNMP、
-   community 是什么。**这一步之前的一切都是没验证过的猜测。**
-2. 如果 SNMP 完全不通，按下面"如果 SNMP 走不通"那节切到 HTTP/CGI 或
-   DevTools 抓包方案——那部分我只写了步骤，没写代码，因为不知道真实的
-   endpoint 长什么样，瞎写了大概率是错的，不如等实测。
-3. 找到真实 OID 之后，先用 `rate_probe.py` 摸一下这个值到底多久真正更新
-   一次，再决定 `ntg2501_logger.py --period` 设多少合理。
+| | IP | 说明 |
+|---|---|---|
+| Master | `192.168.1.201` | Web 首页跳 `/main_mst_rt.cgi` 的那台 |
+| Slave | `192.168.1.101` | Web 首页跳 `/main_slv_rt.cgi` 的那台 |
+| 本机 | `192.168.1.50/24` (enp1s0) | 直连管理网 |
+
+网段是 `192.168.1.x`，**不是**当初 prompt 里写的 `192.168.0.x`——脚本里的默认值
+已经全部改过来了。
+
+### SNMP：确认不可用
+
+两台设备 × SNMP v1/v2c × 7 个 community（public / private / admin / manager /
+netgear / ntg / public1）**全部超时**，一个字节都没回。ping 完全正常、
+telnet(23) 和 HTTP(80) 都开着，所以不是网络问题，是这两台**根本没开 SNMP agent**。
+（Web 界面里确实有 SNMP 设置页 `*_highsetup_Snmp.cgi`，也就是说功能存在但没启用。
+如果哪天有人去 Web 里把它打开了，SNMP 那套脚本应该还能用，所以留着没删。）
+
+### HTTP：走通了，而且比 SNMP 方案更好
+
+设备是 **JRC 25GHz 小電力データ通信装置**（Web server 是 `CenteHTTPd/1.1`，
+Software Ver. 0001.36）。「メインモニタ」页面背后就是一个干净的 XML 接口：
+
+```
+POST http://<host>/xml_master_monitor.cgi     # 空 body，但必须带 Content-Length
+```
+
+**不需要登录**——这个 CGI 不检查 session，直接 POST 就返回当前值：
+
+```xml
+<moniinf><status>
+  <time>2000/01/01 01:19:43</time>
+  <up_mod_val>QPSK</up_mod_val>
+  <quality_tx_up_level> 5.0</quality_tx_up_level>      上り送信 = Slave 发射功率
+  <quality_rx_up_level>-58.7</quality_rx_up_level>     上り受信 = Master 接收功率
+  <quality_tx_down_level> 5.0</quality_tx_down_level>  下り送信 = Master 发射功率
+  <quality_rx_down_level>-58.9</quality_rx_down_level> 下り受信 = Slave 接收功率
+  <quality_rx_up_cnr>28.0</quality_rx_up_cnr>
+  <quality_rx_down_cnr>27.0</quality_rx_down_cnr>
+</status></moniinf>
+```
+
+（上り = slave→master 上行，下り = master→slave 下行。）
+
+**关键：Master 一台就把四个方向的值全报出来了。** Slave 那台只填自己本地知道的
+两个（自己的发射、自己的接收），另外两个是空字符串。所以只查 Master 一台就够，
+而且——**论文最关心的 Slave Tx 和 Master Rx 来自同一次请求、同一份 XML，
+两者天然同时刻，skew 恒为 0。** SNMP 方案里"两台分别查、时刻对不齐、要记 skew_ms
+并且不敢说是同步采样"那个问题，在这条路上根本不存在，可以直接说是同步的。
+
+### 实测性能
+
+- 单次请求 **10~13ms**（中位 11.6ms）
+- **20Hz 持续 60 秒：1195 行，0 错**，延迟全程稳定
+- 接收功率在 20Hz 下**每次轮询都可能变**（20s 内变了 161 次，间隔中位 0.10s），
+  说明设备内部更新至少有 10~20Hz——比原来担心的"Web 页面刷新率"快得多。
+  顺带一提页面自己是 500ms 轮询一次（`slave_monitor.js` 里的 `setTimeout(...,500)`），
+  **设备的更新速度比它的 Web 界面显示的快，肉眼看到的不是上限。**
+- ⚠️ **不要不加节流地满速打。** 试过不 sleep 直接死循环请求，CenteHTTPd 直接
+  `Connection refused`——它每个响应都是 `Connection: close`，socket 撑不住。
+  停下来之后设备自己恢复了，不用重启，但实验跑到一半被打断就白跑了。
+  `ntg2501_http_logger.py` 因此硬性限制最快 20Hz（`MIN_PERIOD = 0.05`），
+  不要去改大这个限制，除非你愿意重跑实验。
+
+### 怎么用
+
+```bash
+cd ntg2501_power_logger
+
+# 看一眼当前值
+python3 ntg2501_http_logger.py --once
+
+# 正式记录：10Hz，Ctrl+C 停
+python3 ntg2501_http_logger.py
+
+# 20Hz、跑 5 分钟自动停、文件名带标签
+python3 ntg2501_http_logger.py --period 0.05 --duration 300 --tag blocked
+
+# 画图：不带参数就画 logs/ 里最新的那份，PNG 存成跟 CSV 同名同目录
+python3 plot_power.py
+```
+
+### 还没做的
+
+1. **真正的遮挡实验还没做。** 上面所有测试都是 LOS 畅通状态下跑的，
+   Slave Tx 全程稳在 `5.0 dBm` 一动不动、Master Rx 在 `-58.1 ~ -58.9 dBm`
+   小幅抖动、CNR 26~28 dB。ATPC 到底怎么补偿、Master Rx 是缓降还是断崖，
+   **必须有人真的去挡一次链路才知道**——工具这边已经准备好了。
+2. 建议的做法：`--tag` 分段记录（baseline / blocked / recovery），或者干脆
+   一路录下来、事后按时间切，反正 20Hz 一分钟才 1200 行。
 
 ## 目录结构
 
@@ -55,6 +128,9 @@
 ntg2501_power_logger/
 ├── README.md              本文件
 ├── requirements.txt        只有画图需要 matplotlib，其它都是标准库
+├── ntg2501_http_logger.py  ★ 实际在用的记录器（HTTP/XML，无需登录，实测跑通）
+│
+│   ↓ 以下 SNMP 那套实测不可用（设备没开 SNMP），留着以防哪天启用了
 ├── snmp_common.py           公共的 SNMP 子进程封装（内部用，不用直接跑）
 ├── snmp_discover.py         Phase 1：探测 community + 存私有 MIB 子树快照
 ├── snmp_diff.py             Phase 1：对比两份快照，找出变化的 OID
@@ -65,7 +141,11 @@ ntg2501_power_logger/
 └── logs/                   ntg2501_logger.py 存 CSV 的地方（跑起来才会建）
 ```
 
-## 完整流程
+## 完整流程（SNMP 版，⚠️ 实测不可用）
+
+> **下面这整节是 SNMP 方案的流程，实测两台设备都没开 SNMP agent，跑不通。**
+> 保留是因为 Web 界面里 SNMP 设置页是存在的，哪天真去启用了这套还能用。
+> **要记录数据请回到上面「怎么用」那节，用 `ntg2501_http_logger.py`。**
 
 ### 0. 装 Net-SNMP 命令行工具（只需装一次）
 
@@ -194,11 +274,18 @@ python plot_power.py logs\ntg2501_power_20260826_190000.csv --out fig_power_vs_t
   具体滤波方式未知（NTG-2501 内部实现，拿不到）。
 - **Web 刷新率 ≠ 传感器更新率 ≠ 我们的轮询率**：三件事分开看，见
   `rate_probe.py` 的说明。
-- **Slave 和 Master 是两台独立设备，各自单独查询**：两次 SNMP 请求不是
-  同一时刻发生的，`ntg2501_logger.py` 记了 `skew_ms`（两次请求发起时刻的
-  差值）——**不要在论文里说这两路数据是完全同步的**，除非确认 skew 小到
-  可以忽略（多小算可以忽略取决于你关心的现象的时间尺度，人体开始/结束
-  遮挡通常是零点几秒量级，skew 若稳定在个位数 ms 应该没问题，具体自己判断）。
+- **同步性：HTTP 方案下不是问题了。** Slave Tx 和 Master Rx 来自 Master 一台
+  设备的同一次请求、同一份 XML，是同时刻的读数，`skew_ms` 恒为 0，
+  **可以放心在论文里说这两路是同步采样的**。（这是 HTTP 方案相对原 SNMP
+  方案的实质优势——SNMP 版要分别查两台设备，才有对不齐的顾虑。）
+- **⚠️ 设备时钟没设，不要用它的时间戳。** 两台报的都是 `2000/01/01 01:xx:xx`，
+  显然没同步过 NTP。CSV 里的 `device_time` 列只是存档参考，
+  **论文用的时间轴一定要用 `timestamp` / `elapsed_s` 这两列（本机时间）**。
+- **调制方式补正**：页面注记「送信レベルと受信レベルはQPSKを基準としたレベルです．
+  16QAMのレベル = 表示値 － 2.6dB / 64QAMのレベル = 表示値 － 3.7dB」。
+  也就是说读数是以 QPSK 为基准的，换调制方式要减常数。目前链路一直是 QPSK，
+  补正量为 0，但**遮挡导致链路降速时调制方式可能会变**——CSV 每行都存了
+  `up_mod`/`down_mod`，事后能补算；也可以加 `--apply-mod-correction` 让它当场减。
 - 术语用 "transmit power / receive power [dBm]"，不要叫它 "energy"。
 
 ## 原始设计依据
