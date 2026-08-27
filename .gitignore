@@ -8,3 +8,7 @@ __pycache__/
 # 20260827 新增：server7.js 每次用 `node server7.js > server7.log` 重启都会重写，
 # 纯运行时日志，不是要留档的东西
 server7.log
+
+# 20260827 新增：功率记录器的运行时输出（CSV 数据 / SNMP 快照），不入库
+ntg2501_power_logger/logs/
+ntg2501_power_logger/dumps/
