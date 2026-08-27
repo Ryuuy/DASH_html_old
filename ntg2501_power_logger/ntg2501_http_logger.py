@@ -229,12 +229,22 @@ def main():
                 s_t0 = time.time()
                 s_vals, s_ms, s_err = fetch_monitor(args.slave_ip, args.timeout)
                 skew_ms = abs(s_t0 - m_t0) * 1000.0
-                # Slave 只在 Master 没报出来的时候顶上（正常情况用不到，
-                # 留着是为了 Master 单侧短暂丢值时不至于整行作废）
-                if not err and not s_err:
-                    for k in ("quality_tx_up_level", "quality_rx_down_level"):
-                        if not vals.get(k) and s_vals.get(k):
-                            vals[k] = s_vals[k]
+                if not s_err:
+                    if err:
+                        # 20260827：Master 整台查不到的时候，**不要把整行丢掉**。
+                        # 实测遮挡实验里出现过 Master 管理口连续 11 秒没响应
+                        # （5 行 2s 超时），而那 11 秒恰恰是最该有数据的那一段。
+                        # Slave 那台自己的发射功率/接收功率是它本地就知道的，
+                        # 只要 Slave 还答得上就该存下来——Master Rx 缺就缺，
+                        # 至少 Slave Tx 这条线不会断。
+                        vals = dict(s_vals)
+                        err = None
+                        ms = s_ms
+                    else:
+                        # 正常情况：Master 已经报全了，Slave 只补它偶尔漏掉的字段
+                        for k in ("quality_tx_up_level", "quality_rx_down_level"):
+                            if not vals.get(k) and s_vals.get(k):
+                                vals[k] = s_vals[k]
 
             elapsed_s = time.monotonic() - t0_mono
             ts_iso = datetime.datetime.now().isoformat(timespec="milliseconds")

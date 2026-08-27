@@ -109,8 +109,8 @@ python3 ntg2501_http_logger.py
 # 20Hz、跑 5 分钟自动停、文件名带标签
 python3 ntg2501_http_logger.py --period 0.05 --duration 300 --tag blocked
 
-# 画图（CSV 列跟 SNMP 版兼容，plot_power.py 不用改）
-python3 plot_power.py logs/ntg2501_http_blocked_*.csv --out fig_power.png
+# 画图：不带参数就画 logs/ 里最新的那份，PNG 存成跟 CSV 同名同目录
+python3 plot_power.py
 ```
 
 ### 还没做的

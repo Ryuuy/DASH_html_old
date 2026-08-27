@@ -32,8 +32,8 @@ python3 ntg2501_http_logger.py --tag baseline
 # 3. 遮挡实验：20Hz、5 分钟自动停
 python3 ntg2501_http_logger.py --period 0.05 --duration 300 --tag blocked
 
-# 4. 画图
-python3 plot_power.py logs/ntg2501_http_blocked_*.csv --out fig_power.png
+# 4. 画图。不带参数 = 画 logs/ 里最新那份，PNG 存成同名
+python3 plot_power.py
 ```
 
 CSV 自动存到 `logs/ntg2501_http_<tag>_<时间>.csv`。
@@ -42,7 +42,7 @@ CSV 自动存到 `logs/ntg2501_http_<tag>_<时间>.csv`。
 
 ```
 logs/ntg2501_http_soaktest_20260827_132900.csv   ← 已录的样例（LOS 畅通，60s @20Hz，1195 行）
-logs/soaktest.png                                 ← 上面那份画出来的图
+logs/ntg2501_http_soaktest_20260827_132900.png    ← 上面那份画出来的图（跟 CSV 同名）
 ```
 
 CSV 主要的列：`elapsed_s`（秒，从记录开始算）、`slave_tx_dbm`、`master_rx_dbm`、
@@ -64,7 +64,7 @@ head -3 logs/ntg2501_http_soaktest_20260827_132900.csv
 
 ## 现在这张图长什么样
 
-`logs/soaktest.png`：LOS 全程畅通，所以两条线都是平的——
+`logs/ntg2501_http_soaktest_20260827_132900.png`：LOS 全程畅通，所以两条线都是平的——
 Slave Tx 死死钉在 **5.0 dBm**（ATPC 没被触发），
 Master Rx 在 **−58.1 ~ −58.9 dBm** 之间小幅抖动，CNR 26~28 dB。
 **这张图本身没有信息量，它只证明整条链路跑通了。**
@@ -96,5 +96,5 @@ curl -s -X POST -d "" http://192.168.1.201/xml_master_monitor.cgi
 
 **不需要装 net-snmp。** README 里让你装是 SNMP 方案的遗留，那条路实测不通。
 
-（无头服务器上画图报错的话，前面加 `MPLBACKEND=Agg`：
-`MPLBACKEND=Agg python3 plot_power.py ...`）
+（`plot_power.py` 默认只存 PNG 不弹窗，所以没有图形界面也能跑，
+不用管 `MPLBACKEND`。想弹窗看的话加 `--show`。）
