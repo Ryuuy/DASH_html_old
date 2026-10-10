@@ -1,0 +1,147 @@
+{
+  "sessionId": "2026-10-03_17-54-14",
+  "testEpochWallClock": 1791017654283,
+  "lastSavedAtWallClock": 1791017674302,
+  "clock": {
+    "ready": true,
+    "offsetMs": 0.545166015625,
+    "nSamples": 1344,
+    "jitterMs": 1.545166015625,
+    "windowSec": 60,
+    "method": "max over window of (server ts - browser receive time); error = min one-way delay"
+  },
+  "isacInterfaceEvents": [
+    {
+      "enabled": true,
+      "reason": "init",
+      "detected": "normal",
+      "type": "video_telemetry",
+      "kind": "isacInterface",
+      "wallClock": 1791017654383,
+      "serverTsEst": 1791017654383
+    }
+  ],
+  "dopplerDetections": [
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017654576,
+      "ridge": 195.3,
+      "E": 211,
+      "recvWallClock": 1791017654577,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017654577,
+      "serverTsEst": 1791017654577
+    },
+    {
+      "state": "normal",
+      "serverTs": 1791017655495.4,
+      "ridge": 0,
+      "E": 0,
+      "recvWallClock": 1791017655498,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017655498,
+      "serverTsEst": 1791017655498
+    },
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017658955.5,
+      "ridge": 195.3,
+      "E": 297,
+      "recvWallClock": 1791017658956,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017658956,
+      "serverTsEst": 1791017658956.2
+    },
+    {
+      "state": "normal",
+      "serverTs": 1791017659524.1,
+      "ridge": 62.5,
+      "E": 0,
+      "recvWallClock": 1791017659524,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017659524,
+      "serverTsEst": 1791017659524.2
+    },
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017662388.4,
+      "ridge": 113.3,
+      "E": 217,
+      "recvWallClock": 1791017662389,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017662389,
+      "serverTsEst": 1791017662389.5452
+    },
+    {
+      "state": "normal",
+      "serverTs": 1791017662924.9,
+      "ridge": 0,
+      "E": 0,
+      "recvWallClock": 1791017662925,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017662925,
+      "serverTsEst": 1791017662925.5452
+    },
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017666459.6,
+      "ridge": 113.3,
+      "E": 217,
+      "recvWallClock": 1791017666460,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017666460,
+      "serverTsEst": 1791017666460.5452
+    },
+    {
+      "state": "normal",
+      "serverTs": 1791017666914.6,
+      "ridge": 43,
+      "E": 0,
+      "recvWallClock": 1791017666918,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017666918,
+      "serverTsEst": 1791017666918.5452
+    },
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017669837.2,
+      "ridge": 113.3,
+      "E": 221,
+      "recvWallClock": 1791017669837,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017669837,
+      "serverTsEst": 1791017669837.5452
+    },
+    {
+      "state": "normal",
+      "serverTs": 1791017670406.1,
+      "ridge": 0,
+      "E": 0,
+      "recvWallClock": 1791017670406,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017670406,
+      "serverTsEst": 1791017670406.5452
+    },
+    {
+      "state": "doppler_detected",
+      "serverTs": 1791017673965.9,
+      "ridge": 113.3,
+      "E": 217,
+      "recvWallClock": 1791017673966,
+      "type": "video_telemetry",
+      "kind": "dopplerDetection",
+      "wallClock": 1791017673966,
+      "serverTsEst": 1791017673966.5452
+    }
+  ]
+}

@@ -112,7 +112,7 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 
 			// 20260812 新增：ISAC 遮挡预警模式下，跳过按带宽估计选码率，直接强制走最低码率
 			// （见 dash-js/isac.js），原有的按带宽选码率逻辑保留在 else 分支里，不受影响
-			if (typeof isac !== 'undefined' && isac.mode === "shadowing") {
+			if (typeof isac !== 'undefined' && isac.mode === "doppler_detected") {
 
 				n = parseInt(this.lowestRepresentation.bandwidth);
 				m = this.lowestRepresentationID;
@@ -145,9 +145,9 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 
 			}
 
-			// 20260815 新增：ISAC 从 shadowing 切回 normal 后，只有当这里按实测带宽真的选出了
+			// 20260815 新增：ISAC 从 doppler_detected 切回 normal 后，只有当这里按实测带宽真的选出了
 			// 比最低码率更高的档位，才算"确认链路真的恢复了"——不是 isac.mode 一变 normal 就信。
-			// isac.recovering 为 false（不在"待确认"状态）或者 shadowing 分支强制选中最低码率时，
+			// isac.recovering 为 false（不在"待确认"状态）或者 doppler_detected 分支强制选中最低码率时，
 			// 这个条件天然不成立，不会误触发。
 			if (typeof isac !== 'undefined' && isac.recovering && m !== this.lowestRepresentationID) {
 				confirmRecovery();
@@ -222,11 +222,13 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 					contentStart: xPos,
 					contentEnd: xPos + 2, // 2 = 分片时长（秒），需要和 mpd 的 SegmentList duration 保持一致
 					representationId: m,
-					bandwidthNominal: n, // 选中档位的标称码率（bps）——在上面三条路径（shadowing 强制 / ABR 选中 / 低于最低码率兜底）里都被正确赋值成"选中档位的 bandwidth"
+					bandwidthNominal: n, // 选中档位的标称码率（bps）——在上面三条路径（doppler_detected 强制 / ABR 选中 / 低于最低码率兜底）里都被正确赋值成"选中档位的 bandwidth"
 					estimatedBps: _mybps,
 					actualThroughputBps: actualThroughputBps,
 					isacMode: (typeof isac !== 'undefined') ? isac.mode : undefined,
-					isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined
+					isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined,
+					isacInterface: (typeof isac !== 'undefined') ? isac.interfaceEnabled : undefined, // 20261003
+					dopplerState: (typeof isac !== 'undefined') ? isac.detected : undefined          // 20261003
 				});
 			}
 

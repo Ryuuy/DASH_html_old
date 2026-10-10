@@ -13,6 +13,10 @@
  * 方式（ISAC 预测 / dBFS 阈值 / 功率阈值）谁更早、更准地判断出遮挡"——每次判断都会调
  * dashTelemetry.recordShadowJudgment() 记下 source/原始值/判断结果，画图/事后分析用。
  *
+ * 注：这两路判的是"功率掉了"，跟 ISAC 的多普勒检测不是一回事；但它们一旦 enabled，驱动的是同一个
+ * 播放模式状态，所以也是 setISACMode("doppler_detected")——只是 source 记成 'dBFS'/'power'，
+ * 事后能分清是谁触发的。20261003 前这个模式叫 "shadowing"。
+ *
  * 默认不驱动播放（.enabled = false）：喂值进来只会记录判断结果，不会真的调 setISACMode()
  * 去改变码率/buffer 策略——现在接的还只是占位阈值，没有真实标定过，贸然让它直接控制播放
  * 会在真数据接进来之前就影响测试结果。等阈值调好、确认判断靠谱了，把对应的 .enabled 设成
@@ -69,7 +73,7 @@ function feedDBFS(dBFSValue, wallClock) {
 	}
 
 	if (dBFSShadowInput.enabled) {
-		setISACMode(judgedShadow ? "shadowing" : "normal");
+		setISACMode(judgedShadow ? "doppler_detected" : "normal", "dBFS");
 	}
 	return judgedShadow;
 }
@@ -92,7 +96,7 @@ function feedPowerShadow(powerValue, wallClock) {
 	}
 
 	if (powerShadowInput.enabled) {
-		setISACMode(judgedShadow ? "shadowing" : "normal");
+		setISACMode(judgedShadow ? "doppler_detected" : "normal", "power");
 	}
 	return judgedShadow;
 }

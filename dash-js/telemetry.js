@@ -7,7 +7,11 @@
  *
  *   window.dashTelemetry.segments         每个分片的最终码率决策（含被 confirmRecovery
  *                                          废弃、从没真正播出来的旧决策，用 superseded 标记）
- *   window.dashTelemetry.isacEvents       isac 模式变化事件（normal/shadowing/recovering）
+ *   window.dashTelemetry.isacEvents       isac 模式变化事件（normal/doppler_detected/recovering）——
+ *                                          这是"实际生效的模式"，ISAC 接口关掉时它一直是 normal
+ *   window.dashTelemetry.dopplerDetections 20261003：ISAC 那边的多普勒检测翻转（不管接口开没开都记，
+ *                                          serverTs 是 rt_main 判决那一刻的 Ubuntu 时间）
+ *   window.dashTelemetry.isacInterfaceEvents 20261003：网页上 "ISAC interface" 按钮的开/关事件
  *   window.dashTelemetry.playbackSamples  周期性采样：当前播到哪、buffer 占用、isac 状态
  *
  * 用途：
@@ -32,10 +36,20 @@ var dashTelemetry = (function () {
 	// （'isac_prediction' / 'dBFS' / 'power'，见 dash-js/shadowInputs.js），不是互相替代关系，
 	// 只是各自独立地把"这一刻的原始值 + 判出来的结果"记下来，供论文里比较三种方法谁更早/更准。
 	var shadowJudgments = [];
+	// 20261003 新增：多普勒检测翻转（原始检测，跟接口开关无关）；ISAC 接口开关事件。
+	var dopplerDetections = [];
+	var isacInterfaceEvents = [];
+	// 20261003：视频播放/暂停/结束事件（见 dopplerView.js），后处理时用来排除暂停的时间段
+	var videoStateEvents = [];
 	var maxKeep = 20000;      // 防止长时间播放把内存占满，超过就丢最老的（先进先出），不影响已经推送出去的部分
+	// 20261003：playbackSamples 每 0.1 s 一条，20000 条只够 33 分钟，半小时多一点的实验开头就被挤掉了，
+	// 单独放宽到 60000（100 分钟，约 20 MB）。shadowJudgments（dBFS/power 各 50 条/秒）仍是 20000 条
+	// ≈ 3 分钟，那是原有行为，没动。
+	var maxKeepPlayback = 60000;
 
 	function trim(arr) {
-		if (arr.length > maxKeep) arr.splice(0, arr.length - maxKeep);
+		var cap = (arr === playbackSamples) ? maxKeepPlayback : maxKeep;
+		if (arr.length > cap) arr.splice(0, arr.length - cap);
 	}
 
 	function nowWall() { return Date.now(); }
@@ -54,11 +68,20 @@ var dashTelemetry = (function () {
 		record.type = "video_telemetry"; // isac_server.py 靠这个字段区分"这是视频端推来的遥测"，不是别的消息
 		record.kind = kind;              // "segment" | "isacEvent" | "playbackSample"
 		record.wallClock = record.wallClock || nowWall();
+		// 20261003：每条记录都带一个 server time 估计（Ubuntu 时钟，ms），见 isacClock.js。
+		// wallClock 仍是浏览器自己的 Date.now()，两个都留着，事后可以重新对齐。
+		if (typeof isacClock !== 'undefined' && record.serverTsEst === undefined) {
+			var se = isacClock.toServerMs(record.wallClock);
+			if (se !== null) record.serverTsEst = se;
+		}
 
 		if (kind === "segment") { segments.push(record); trim(segments); }
 		else if (kind === "isacEvent") { isacEvents.push(record); trim(isacEvents); }
 		else if (kind === "playbackSample") { playbackSamples.push(record); trim(playbackSamples); }
 		else if (kind === "shadowJudgment") { shadowJudgments.push(record); trim(shadowJudgments); }
+		else if (kind === "dopplerDetection") { dopplerDetections.push(record); trim(dopplerDetections); }
+		else if (kind === "isacInterface") { isacInterfaceEvents.push(record); trim(isacInterfaceEvents); }
+		else if (kind === "videoState") { videoStateEvents.push(record); trim(videoStateEvents); }
 
 		sendOverWs(record);
 		return record;
@@ -107,6 +130,23 @@ var dashTelemetry = (function () {
 		return pushAndSend("shadowJudgment", rec);
 	}
 
+	// 20261003 新增：ISAC 那边多普勒检测翻转。rec: {state:'doppler_detected'|'normal',
+	// serverTs(rt_main 判决时刻, Ubuntu ms), ridge, E, recvWallClock(浏览器收到的 Date.now())}
+	function recordDopplerDetection(rec) {
+		return pushAndSend("dopplerDetection", rec);
+	}
+
+	// 20261003 新增：网页上 ISAC interface 按钮。rec: {enabled:bool, reason:'init'|'button'}
+	// 通过同一条 ws 推回 isac_server，server 收到时会盖上自己的 server_recv_ts——那个是权威时间。
+	function recordIsacInterface(rec) {
+		return pushAndSend("isacInterface", rec);
+	}
+
+	// 20261003 新增：视频状态。rec: {state:'playing'|'paused'|'ended', contentTime}
+	function recordVideoState(rec) {
+		return pushAndSend("videoState", rec);
+	}
+
 	// 给"最终播放码率"这张图用：在给定的内容时间点，找最后一条没被废弃、
 	// 且覆盖这个时间点的分片决策记录（"最后一条"是因为同一段内容如果被重新决策过，
 	// 数组里可能有旧的 superseded 记录排在前面，新记录排在后面）
@@ -128,6 +168,9 @@ var dashTelemetry = (function () {
 			segments: segments.slice(),
 			isacEvents: isacEvents.slice(),
 			shadowJudgments: shadowJudgments.slice(),
+			dopplerDetections: dopplerDetections.slice(),
+			isacInterfaceEvents: isacInterfaceEvents.slice(),
+			videoStateEvents: videoStateEvents.slice(),
 			playbackSamples: playbackSamples.slice()
 		};
 	}
@@ -143,6 +186,9 @@ var dashTelemetry = (function () {
 		recordIsacEvent: recordIsacEvent,
 		recordPlaybackSample: recordPlaybackSample,
 		recordShadowJudgment: recordShadowJudgment,
+		recordDopplerDetection: recordDopplerDetection,
+		recordIsacInterface: recordIsacInterface,
+		recordVideoState: recordVideoState,
 		findPlayingSegment: findPlayingSegment,
 		getSnapshot: getSnapshot,
 		exportJSON: exportJSON,
@@ -150,6 +196,9 @@ var dashTelemetry = (function () {
 		segments: segments,
 		isacEvents: isacEvents,
 		shadowJudgments: shadowJudgments,
+		dopplerDetections: dopplerDetections,
+		isacInterfaceEvents: isacInterfaceEvents,
+		videoStateEvents: videoStateEvents,
 		playbackSamples: playbackSamples
 	};
 

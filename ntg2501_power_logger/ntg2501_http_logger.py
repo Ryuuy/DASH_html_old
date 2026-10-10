@@ -83,6 +83,7 @@ FIELDS = (
     "quality_tx_down_level", "quality_rx_down_level",
     "quality_rx_up_cnr", "quality_rx_down_cnr",
     "wireless_range_up", "wireless_range_down",
+    "input_rate_up", "input_rate_down", "output_rate_up", "output_rate_down",
 )
 
 CSV_HEADER = [
@@ -96,9 +97,31 @@ CSV_HEADER = [
     "query_ms", "skew_ms",                    # 只查 master 时 skew 恒为 0
     "device_time",                            # 设备自己报的时间，仅供参考，见 README
     "slave_valid", "master_valid",
+    # ---- 20261009 追加（只加在行尾，旧脚本按列名读不受影响；按"从行尾倒数"读的要注意）----
+    "unix_time",                              # 本机 time.time()，跟 USRP/DASH 对齐用
+    "wireless_range_up", "wireless_range_down",   # 無線伝送速度 [Mbps]，自适应调制后的 PHY 容量
+    "input_rate_up", "input_rate_down",       # 入力レート [Mbps]：送进设备有线口的流量(offered)
+    "output_rate_up", "output_rate_down",     # 出力レート [Mbps]：设备交出有线口的流量(delivered)
+    "pathloss_up_db", "pathloss_down_db",     # 等效路径损耗 = Tx - Rx（ATPC 下比单看 Rx 有用）
+    "marker",                                 # 回车打点：label@unix_time，多个用 ; 连接
 ]
 
 _stop = False
+_markers = []          # 回车打点队列（stdin 线程写、主循环读）
+
+
+def _marker_thread():
+    """终端里按回车打一个点（可先打几个字当标签，如 "cross_mid_fast"）。
+    时间取按下回车那一刻的 time.time()，下一行 CSV 的 marker 列带上。"""
+    import threading  # noqa: F401
+    while not _stop:
+        try:
+            line = sys.stdin.readline()
+        except Exception:
+            return
+        if not line:
+            return
+        _markers.append(f"{line.strip() or 'mark'}@{time.time():.3f}")
 
 
 def _on_sigint(signum, frame):
@@ -160,6 +183,9 @@ def main():
     p.add_argument("--tag", default=None, help="加进默认文件名里的标签，比如 --tag blocked")
     p.add_argument("--apply-mod-correction", action="store_true",
                    help="按调制方式当场把 16QAM/64QAM 的补正减掉（默认存原始读数）")
+    p.add_argument("--markers-stdin", action="store_true",
+                   help="即使 stdin 不是终端也读它的行当打点（被 isac_bridge 当子进程起时用，"
+                        "bridge 把操作员回车打的点转发过来）")
     p.add_argument("--once", action="store_true", help="打印一次当前值就退出，不写 CSV")
     args = p.parse_args()
 
@@ -202,6 +228,10 @@ def main():
         print(f"   确认 --master-ip 指的确实是 Master（Web 首页会跳到 main_mst_rt.cgi 的那台）。")
 
     signal.signal(signal.SIGINT, _on_sigint)
+    if sys.stdin.isatty() or args.markers_stdin:
+        import threading
+        threading.Thread(target=_marker_thread, daemon=True).start()
+        print("打点：在这个终端按回车（可先输入标签再回车），时间会写进下一行的 marker 列")
     print(f"记录中 -> {out_path}")
     print(f"  Master {args.master_ip}（{probe_ms:.0f}ms 首次响应）"
           f"{'，同时查 Slave ' + args.slave_ip if args.also_slave else ''}"
@@ -251,8 +281,15 @@ def main():
 
             if err:
                 n_err += 1
-                writer.writerow([ts_iso, f"{elapsed_s:.3f}"] + [""] * 12
-                                + [f"{ms:.1f}", f"{skew_ms:.1f}", "", 0, 0])
+                # 20260930 修复：CSV_HEADER 里 slave_tx_dbm..mod_correction_db 是 11 个
+                # 字段（原来错写成 [""]*12，多写一个空字段，导致失败行整体错位一列——
+                # query_ms 读到空、slave_valid 读到空字符串、master_valid 因为两个尾部
+                # 都是 0 才侥幸没读错。历史 CSV 不用重录，从行尾倒着数字段仍是对的。
+                writer.writerow([ts_iso, f"{elapsed_s:.3f}"] + [""] * 11
+                                + [f"{ms:.1f}", f"{skew_ms:.1f}", "", 0, 0]
+                                + [f"{m_t0:.3f}"] + [""] * 8
+                                + [";".join(_markers[:]) if _markers else ""])
+                _markers.clear()
                 f.flush()
                 n += 1
                 print(f"  [{ts_iso}] ⚠️ {err}")
@@ -281,7 +318,15 @@ def main():
                     f"{ms:.1f}", f"{skew_ms:.1f}",
                     vals["time"],
                     int(s_tx is not None), int(m_rx is not None),
+                    f"{m_t0:.3f}",
+                    vals["wireless_range_up"], vals["wireless_range_down"],
+                    vals["input_rate_up"], vals["input_rate_down"],
+                    vals["output_rate_up"], vals["output_rate_down"],
+                    fmt(s_tx_raw - m_rx_raw) if (s_tx_raw is not None and m_rx_raw is not None) else "",
+                    fmt(m_tx_raw - s_rx_raw) if (m_tx_raw is not None and s_rx_raw is not None) else "",
+                    ";".join(_markers[:]) if _markers else "",
                 ])
+                _markers.clear()
                 f.flush()
                 n += 1
                 if s_tx is None or m_rx is None:

@@ -4,10 +4,12 @@
 		<meta http-equiv="Content-Type" content="text/html">
         <meta charset="utf-8">
 	<script src="dash-js/dashPlayerVars.js"></script> <!-- 这里面第一行就把 window.__dashTestEpoch 记下来了，务必是第一个加载的 script -->
+	<script src="dash-js/isacClock.js"></script> <!-- 20261003 新增：浏览器时钟 -> ISAC(Ubuntu) 时钟换算，要在 telemetry.js / isac_ws_client.js 之前 -->
 	<script src="dash-js/sessionAutoSave.js"></script> <!-- 20260827 新增：刷新网页就自动建一个按时间命名的文件夹，定期把这次测试的数据存进 server7.js 本地的 sessions/ 目录 -->
 	<script src="dash-js/telemetry.js"></script> <!-- 20260817 新增：统一的遥测数据出口，isac.js/adaptationlogic.js/DASHttp.js/dash.js 都会写进去，要在它们之前加载 -->
 	<script src="dash-js/isac.js"></script>
 	<script src="dash-js/shadowInputs.js"></script> <!-- 20260826 新增：dBFS / power 两路独立的遮挡判断入口，要在 isac_ws_client.js 之前加载（它会转发消息过来） -->
+	<script src="dash-js/dopplerView.js"></script> <!-- 20261003 新增：第六张图，实时多普勒瀑布图 + 判决虚线 + ISAC interface 带，要在 isac_ws_client.js 之前 -->
 	<script src="dash-js/isac_ws_client.js"></script> <!-- 20260812 新增：接真实 ISAC WebSocket 推送，见 isac_server.py -->
 	<script src="dash-js/mediaSourceAPIAdaptation.js"></script>
 	<script src="dash-js/fplot_partial.js"></script>
@@ -15,6 +17,7 @@
 	<script src="dash-js/fplot_ShadowRate.js"></script> <!-- 20260817 新增：第三张图，最终选中码率 + ISAC 状态带 -->
 	<script src="dash-js/fplot_BufferByRep.js"></script> <!-- 20260826 新增：第四张图，剩余 buffer 按码率堆叠的面积图 -->
 	<script src="dash-js/fplot_NetSpeed.js"></script> <!-- 20260826 新增：第五张图，实测网速，可导出成 throughputTrace 复现 -->
+	<script src="dash-js/fplot_Ntg.js"></script> <!-- 20261009 新增：第 8/9/10 张图，NTG-2501 链路状态（無線伝送速度 / 受信·送信レベル·CNR / 入出力レート），数据由 server7.js 轮询，见 dash-js/fplot_Ntg.js -->
 	<script src="dash-js/snapshotExport.js"></script> <!-- 20260826 新增：把 ISAC 状态/图四/图五打包成一份带时间戳的 JSON 文件，见 snapshots_FORMAT.md -->
 	<script src="dash-js/mpdParser.js"></script>
 	<script src="dash-js/bandwidth.js"></script>
@@ -41,10 +44,16 @@
     <br>
         Bandwidth in kbps (0=infinite[estimated]): <input type="text" id="bps" value="0"> <input type="button" value="Set" onClick="javascript:setBandwidth()"></p>
 	<p>
-		<!-- 20260812 新增：ISAC 模式手动测试按钮，等真实 ISAC 数据接进来之后，这两个按钮触发的逻辑会换成真实感知结果驱动 -->
-		ISAC mode: <span id="isacModeLabel">normal</span>
-		<input type="button" value="模拟 ISAC 遮挡预警 (shadowing)" onClick="javascript:setISACMode('shadowing'); document.getElementById('isacModeLabel').innerText = isac.mode;">
-		<input type="button" value="恢复正常 (normal)" onClick="javascript:setISACMode('normal'); document.getElementById('isacModeLabel').innerText = isac.mode;">
+		<!-- 20261003：ISAC 接口开关。ON = 播放逻辑听 ISAC 的（检测到多普勒就进入 doppler_detected：强制最低码率、放大 buffer）；
+		     OFF = 完全不考虑 ISAC（纯 ABR 基线）。关掉时检测照常显示、照常记录，每次开关都记一条带 server 时间的事件，
+		     见 dash-js/isac.js 和 snapshots_FORMAT.md -->
+		<input type="button" id="isacIfBtn" value="ISAC interface: ON" onClick="javascript:toggleISACInterface()" style="font-weight:bold; background:#bdf0c0; padding:4px 12px;">
+		&nbsp; effective mode: <b><span id="isacModeLabel">normal</span></b>
+		&nbsp; ISAC detection: <b><span id="isacDetectedLabel">normal</span></b>
+		&nbsp; &nbsp;
+		<!-- 手动测试按钮（没接真实 ISAC 时用）：20261003 起 "shadowing" 改名 "doppler detected" -->
+		<input type="button" value="Simulate: Doppler detected" onClick="javascript:setISACMode('doppler_detected', 'manual'); updateISACLabels();">
+		<input type="button" value="Simulate: back to normal" onClick="javascript:setISACMode('normal', 'manual'); updateISACLabels();">
 	</p>
 	<p>
 		<script>
@@ -57,36 +66,43 @@
 	// Here, autoplay means when the video is loaded, it will play automatically
 	</script>
 	
+	<!-- 20261003：分析图改成两列，每列 = 视频宽度(1920)的一半(960)，canvas 的 id 没变（JS 按 id 画图）。
+	     左列(从上到下)： ISAC state + ISAC interface 带(graph3) / 剩余 buffer 按码率堆叠的彩色面积图(graph4) / 实测网速(graph5)
+	     右列(从上到下)： 实时多普勒瀑布图(graph6) / Final Selected Bitrate(graph7，原来是 graph3 的下半部分，现在单独成图)
+	     最下面一行：原来的第一张图(graph) | 原来的第二张图(graph2)
+	     想换位置：直接把对应的 <canvas> 那一行剪切到别的 <div> 里就行；想改宽度：改 canvas 的 width 属性（图内部自适应）。 -->
 	<!-- <canvas id="graph1" width="500" height="300" style="border:1px solid #000000;"></canvas> -->
 	<br>
+	<div style="display:flex; align-items:flex-start; width:1920px;">
+	  <div style="display:flex; flex-direction:column; width:960px;">
+	    <canvas id="graph3" width="960" height="100" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	    <canvas id="graph4" width="960" height="300" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	    <canvas id="graph5" width="960" height="300" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	    <input type="button" value="Export Network Trace (download .js + console)" onclick="if(typeof myFplotNetSpeed!=='undefined' && myFplotNetSpeed) myFplotNetSpeed.downloadTraceFile();">
+	  </div>
+	  <div style="display:flex; flex-direction:column; width:960px;">
+	    <canvas id="graph6" width="960" height="520" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	    <canvas id="graph7" width="960" height="300" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	  </div>
+	</div>
+	<!-- 20261009：NTG-2501 三张图（graph8 無線伝送速度 / graph9 受信·送信レベル+CNR / graph10 入力·出力レート），横轴同为页面加载后秒数 -->
+	<div style="display:flex; width:1920px;">
+	  <canvas id="graph8" width="640" height="340" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	  <canvas id="graph9" width="640" height="340" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	  <canvas id="graph10" width="640" height="340" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	</div>
+	<!-- 20261009：graph11 = USRP 两路 IQ 能量(reference/sensing channel dBFS)，之前只记录没画 -->
+	<div style="display:flex; width:1920px;">
+	  <canvas id="graph11" width="1920" height="300" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	</div>
+	<div style="display:flex; width:1920px;">
+	  <canvas id="graph" width="960" height="400" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	  <canvas id="graph2" width="960" height="400" style="display:block; outline:1px solid #ccc; outline-offset:-1px;"></canvas>
+	</div>
 	<br>
-	<br>
-	 <canvas id="graph" width="800" height="400"></canvas>
-
-	<br>
-	<br>
-	 <canvas id="graph2" width="800" height="400"></canvas>
-
-	<br>
-	<br>
-	 <!-- 20260817 新增：第三张图——最终选中码率 + ISAC 状态带，见 dash-js/fplot_ShadowRate.js -->
-	 <canvas id="graph3" width="800" height="300"></canvas>
-
-	<br>
-	<br>
-	 <!-- 20260826 新增：第四张图——剩余 buffer 按码率堆叠的面积图，见 dash-js/fplot_BufferByRep.js -->
-	 <canvas id="graph4" width="800" height="300"></canvas>
-
-	<br>
-	<br>
-	 <!-- 20260826 新增：第五张图——实测网速，见 dash-js/fplot_NetSpeed.js -->
-	 <canvas id="graph5" width="800" height="300"></canvas>
-	 <br>
-	 <input type="button" value="Export Network Trace (download .js + console)" onclick="if(typeof myFplotNetSpeed!=='undefined' && myFplotNetSpeed) myFplotNetSpeed.downloadTraceFile();">
-	 <br>
 	 <!-- 20260826 新增：一次性打包 ISAC 状态 + 图四（buffer 堆叠历史）+ 图五（网速，粗+细粒度）
 	      成一份带时间戳的 JSON，格式说明见项目根目录 snapshots_FORMAT.md -->
-	 <input type="button" value="Save Full Snapshot (ISAC state + buffer-by-rep + net speed, timestamped JSON)" onclick="if(typeof downloadFullSnapshot==='function') downloadFullSnapshot();">
+	 <input type="button" value="Save Full Snapshot (ISAC state + interface ON/OFF + Doppler spectrogram + buffer-by-rep + net speed, timestamped JSON)" onclick="if(typeof downloadFullSnapshot==='function') downloadFullSnapshot();">
     </p>
 		<script>
  		document.getElementById("bps").value = maxBandwidth/1024;

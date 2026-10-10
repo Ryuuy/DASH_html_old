@@ -33,7 +33,26 @@
  * 不是 bug，等播放器初始化完，下一次定时保存自然就有数据了。
  */
 
-var SESSION_SAVE_INTERVAL_MS = 2000; // 每 2 秒整份重写一次，不是追加
+// 20261003：自动保存的三种模式，用网址参数选： ?autosave=off | light（默认）| full
+//
+// 为什么要改：每次保存都是把"整份数据"推给 server7.js 覆盖写，数据又随运行时间一直变长
+// （buffer_by_rep / net_speed 每 0.1 s 一个点、不设上限）。实测（headless Chrome，多普勒+dBFS/power
+// 数据都在流）：每 2 秒推一轮，上行流量 0.65 → 2.1 → 4.9 → 7.7 → 10.5 Mbit/s（0.5 / 1 / 2 / 3 / 4 分钟），
+// 每分钟涨约 2.8 Mbit/s，9~10 分钟就会占满 NTG-2501 的 26 Mbps。浏览器和 server7.js 不在同一台电脑时，
+// 这些数据要穿过正在被测的无线链路，把视频的请求/ACK 挤在后面（排队），表现就是网页越跑越卡、
+// 分片 3 s 超时重试、最后播放器停住。链路本身是被测对象，不能让自己的保存流量占用它。
+//   off    完全不自动保存（实验时推荐；数据靠 Ubuntu 的 isac_logs/*.npz + 手动 Save Full Snapshot）
+//   light  （默认）只推小文件：meta.json / doppler_shadow_events.json / power_dbfs_judgments.json，
+//          每 10 s 一次；不推 buffer_by_rep.json 和 net_speed.json（这两个手动快照里都有）
+//   full   原来的行为：5 个文件全推，每 2 s 一次
+var AUTOSAVE_MODE = (function () {
+	try {
+		var m = new URLSearchParams(window.location.search).get("autosave");
+		if (m === "off" || m === "light" || m === "full") return m;
+	} catch (e) {}
+	return "light";
+})();
+var SESSION_SAVE_INTERVAL_MS = (AUTOSAVE_MODE === "full") ? 2000 : 10000; // 每次整份重写，不是追加
 
 var _dashSessionId = null;
 
@@ -61,13 +80,13 @@ function _postSessionFile(filename, data) {
 function saveSessionSnapshotNow() {
 	if (!_dashSessionId) return;
 
-	if (typeof myFplotBufferRep !== 'undefined' && myFplotBufferRep) {
+	if (AUTOSAVE_MODE === "full" && typeof myFplotBufferRep !== 'undefined' && myFplotBufferRep) {
 		_postSessionFile("buffer_by_rep.json", {
 			repLadder: myFplotBufferRep.repLadder,
 			history: myFplotBufferRep.history
 		});
 	}
-	if (typeof myFplotNetSpeed !== 'undefined' && myFplotNetSpeed) {
+	if (AUTOSAVE_MODE === "full" && typeof myFplotNetSpeed !== 'undefined' && myFplotNetSpeed) {
 		_postSessionFile("net_speed.json", {
 			coarseSamples: myFplotNetSpeed.samples,
 			fineSamples: myFplotNetSpeed.fineSamples,
@@ -81,13 +100,23 @@ function saveSessionSnapshotNow() {
 	_postSessionFile("meta.json", {
 		sessionId: _dashSessionId,
 		testEpochWallClock: (typeof window !== 'undefined') ? window.__dashTestEpoch : undefined,
-		lastSavedAtWallClock: Date.now()
+		lastSavedAtWallClock: Date.now(),
+		// 20261003：server7.js 的文件名白名单是固定的（旧版本 server 也一样），所以新信息塞进
+		// 已有的 meta.json，不新增文件名，也就不需要更新 server7.js。瀑布图太大，不在这里存
+		// （在 Ubuntu 的 isac_logs/*.npz 和手动 Save Full Snapshot 里）。
+		clock: (typeof isacClock !== 'undefined') ? isacClock.info() : null,
+		isacInterfaceEvents: (typeof dashTelemetry !== 'undefined') ? dashTelemetry.isacInterfaceEvents : [],
+		dopplerDetections: (typeof dashTelemetry !== 'undefined') ? dashTelemetry.dopplerDetections : []
 	});
 }
 
 function startSessionAutoSave() {
+	if (AUTOSAVE_MODE === "off") {
+		console.log("sessionAutoSave: OFF（网址带 ?autosave=off）——不往 server7.js 推任何数据");
+		return;
+	}
 	_dashSessionId = _timestampForSessionId();
-	console.log("sessionAutoSave: session=" + _dashSessionId + "，每 " +
+	console.log("sessionAutoSave: mode=" + AUTOSAVE_MODE + " session=" + _dashSessionId + "，每 " +
 		(SESSION_SAVE_INTERVAL_MS / 1000) + "s 存一次到 sessions/" + _dashSessionId + "/");
 	// 立刻先存一次 meta.json，哪怕紧接着就关掉页面，文件夹和这次测试的
 	// 起始时间锚点也已经落盘了

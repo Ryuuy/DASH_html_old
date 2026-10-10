@@ -16,6 +16,9 @@ function updatePlaybackTime()
             contentTime: contentTimeNow,
             isacMode: (typeof isac !== 'undefined') ? isac.mode : undefined,
             isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined,
+            // 20261003：ISAC 接口开关 + ISAC 原始检测状态（isacMode 是"实际生效的"，接口关掉时恒为 normal）
+            isacInterface: (typeof isac !== 'undefined') ? isac.interfaceEnabled : undefined,
+            dopplerState: (typeof isac !== 'undefined') ? isac.detected : undefined,
             playingRepresentationId: playing ? playing.representationId : undefined,
             playingBandwidth: playing ? playing.bandwidthNominal : undefined,
             bufferFillSeconds: (typeof overlayBuffer !== 'undefined' && overlayBuffer) ? overlayBuffer.fillState.seconds : undefined,
@@ -24,6 +27,10 @@ function updatePlaybackTime()
     }
     if (typeof myFplotShadow !== 'undefined' && myFplotShadow) {
         myFplotShadow.plot();
+    }
+    // 20261003：Final Selected Bitrate 从第三张图里拆出来单独成图（graph7），跟上面同节奏重画
+    if (typeof myFplotBitrate !== 'undefined' && myFplotBitrate) {
+        myFplotBitrate.plot();
     }
 
     // 20260826 新增：第四张（剩余 buffer 按码率堆叠）、第五张（实测网速）图，
@@ -65,12 +72,17 @@ function DASH_MPD_loaded()
  	myFplot2.initNewFunction(1);   //曲线1就是buffer情况的曲线
     playbackTimePlot2 = myFplot2;
 
-	// 20260817 新增：第三张图——最终选中码率（阶梯线）+ ISAC 状态带（normal/shadowing/recovering），
+	// 20260817 新增：第三张图——最终选中码率（阶梯线）+ ISAC 状态带（normal/doppler_detected/recovering），
 	// 数据直接从 dashTelemetry 里读（不是靠 observer 推，见 fplot_ShadowRate.js），
 	// 刷新由 updatePlaybackTime() 里每 0.1s 调一次 myFplotShadow.plot() 驱动，跟其它图同节奏。
 	var graph3Canvas = document.getElementById("graph3");
 	if (graph3Canvas) {
-		myFplotShadow = new fPlotShadow(graph3Canvas.getContext("2d"), graph3Canvas.width, graph3Canvas.height);
+		// 20261003：graph3 现在只画 ISAC state 带 + ISAC interface 带；Final Selected Bitrate 在 graph7
+		myFplotShadow = new fPlotShadow(graph3Canvas.getContext("2d"), graph3Canvas.width, graph3Canvas.height, "bands");
+	}
+	var graph7Canvas = document.getElementById("graph7");
+	if (graph7Canvas) {
+		myFplotBitrate = new fPlotShadow(graph7Canvas.getContext("2d"), graph7Canvas.width, graph7Canvas.height, "bitrate");
 	}
 
 	// 20260826 新增：第四张图——剩余 buffer 按码率堆叠的面积图（见 fplot_BufferByRep.js）。

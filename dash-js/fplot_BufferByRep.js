@@ -6,7 +6,7 @@
  *
  * 背景：第一张图（fplot_partial.js）的蓝线（Representation Rate）身兼两职——既画瞬时
  * 决策，横坐标又是会被 isac.js 的 confirmRecovery() 故意倒回的 curSegment*2，
- * 关掉 shadowing 时旧线不会消失，看起来像串线（根因见 confirmRecovery() 里的注释）。
+ * 关掉 doppler_detected 时旧线不会消失，看起来像串线（根因见 confirmRecovery() 里的注释）。
  * 这张图专门只做一件事：告诉你"现在手里囤的这些秒数的 buffer，分别是哪个码率抓的"，
  * 不跟任何决策指针共用同一个可能倒退的横坐标——历史点一旦记录下来就不再改动。
  *

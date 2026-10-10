@@ -1,0 +1,78 @@
+[
+  {
+    "fromMode": "normal",
+    "toMode": "doppler_detected",
+    "recovering": false,
+    "detected": "doppler_detected",
+    "interfaceEnabled": true,
+    "source": "isac",
+    "confirmed": false,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018329228,
+    "serverTsEst": 1791018329228.3
+  },
+  {
+    "fromMode": "doppler_detected",
+    "toMode": "normal",
+    "recovering": true,
+    "detected": "normal",
+    "interfaceEnabled": true,
+    "source": "isac",
+    "confirmed": false,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018329780,
+    "serverTsEst": 1791018329780.3257
+  },
+  {
+    "fromMode": "doppler_detected",
+    "toMode": "normal",
+    "interfaceEnabled": true,
+    "recovering": false,
+    "confirmed": true,
+    "discardedSegments": 13,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018330697,
+    "serverTsEst": 1791018330697.3257
+  },
+  {
+    "fromMode": "normal",
+    "toMode": "doppler_detected",
+    "recovering": false,
+    "detected": "doppler_detected",
+    "interfaceEnabled": true,
+    "source": "isac",
+    "confirmed": false,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018332538,
+    "serverTsEst": 1791018332538.3606
+  },
+  {
+    "fromMode": "doppler_detected",
+    "toMode": "normal",
+    "recovering": true,
+    "detected": "normal",
+    "interfaceEnabled": true,
+    "source": "isac",
+    "confirmed": false,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018333069,
+    "serverTsEst": 1791018333069.4268
+  },
+  {
+    "fromMode": "doppler_detected",
+    "toMode": "normal",
+    "interfaceEnabled": true,
+    "recovering": false,
+    "confirmed": true,
+    "discardedSegments": 13,
+    "type": "video_telemetry",
+    "kind": "isacEvent",
+    "wallClock": 1791018334716,
+    "serverTsEst": 1791018334716.4268
+  }
+]

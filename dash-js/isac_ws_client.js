@@ -14,7 +14,15 @@
 // 20260814 已切换：isac_server.py 跑在 Ubuntu 机器上，走有线网口 enp1s0（本地专线，非学校 WiFi）。
 // 如果这台机器的本地网 IP 变了（比如网线换口/DHCP 重新分配），要同步改这里，
 // 用 `ip -brief addr show` 查 enp1s0 对应的地址。
-var ISAC_WS_URL = "ws://192.168.1.50:8765/isac";
+// 20261003：可以在网页地址后面加 ?isacws=ws://别的IP:8765/isac 临时覆盖，换 IP 时不用改这个文件
+// （页面文件如果放在另一台机器上的 node server 里，也就不用重新部署）。
+var ISAC_WS_URL = (function () {
+	try {
+		var q = new URLSearchParams(window.location.search).get("isacws");
+		if (q) return q;
+	} catch (e) {}
+	return "ws://192.168.1.50:8765/isac";
+})();
 
 var isacWsReconnectDelay = 1000;
 var ISAC_WS_MAX_RECONNECT_DELAY = 10000;
@@ -41,10 +49,37 @@ function connectISACWebSocket() {
 			console.log("ISAC WS: 收到无法解析的消息 " + event.data);
 			return;
 		}
+		// 20261003：每条带 server 时间戳的消息都喂给时钟估计器（isacClock.js），不需要 ping/pong。
+		// mode 消息的 ts 是秒（isac_server.py 的 time.time()），其余是毫秒。
+		if (typeof isacClock !== 'undefined') {
+			if (typeof data.ts === 'number') isacClock.observe(data.type ? data.ts : data.ts * 1000);
+			else if (typeof data.wallClock === 'number') isacClock.observe(data.wallClock);
+		}
+
+		// 20261003 新增的几种消息（isac_bridge.py 通过 isac_server 的广播通道发的；旧 server 不认识也没关系）
+		if (data && data.type === "doppler_spec") {
+			if (typeof dopplerView !== 'undefined') dopplerView.feed(data);
+			return;
+		}
+		if (data && data.type === "doppler_meta") {
+			if (typeof dopplerView !== 'undefined') dopplerView.setMeta(data.meta);
+			return;
+		}
+		if (data && data.type === "doppler_event") {
+			// ISAC 那边判决翻转的精确时刻（rt_main 判决时的 Ubuntu 时间），不管 ISAC 接口开没开都记
+			if (typeof dashTelemetry !== 'undefined') {
+				dashTelemetry.recordDopplerDetection({
+					state: data.state, serverTs: data.ts, ridge: data.ridge, E: data.E,
+					recvWallClock: Date.now()
+				});
+			}
+			return;
+		}
+		if (data && data.type === "clock") return;
+
 		if (data && data.mode) {
-			setISACMode(data.mode);
-			var label = document.getElementById('isacModeLabel');
-			if (label) label.innerText = isac.mode;
+			setISACMode(data.mode, "isac");   // 旧字符串 "shadowing" 在 setISACMode 里会被当成 doppler_detected
+			if (typeof updateISACLabels === 'function') updateISACLabels();
 		}
 
 		// 20260826 新增：同一条连接上，如果消息带了 dBFS 或 power 字段，转发给

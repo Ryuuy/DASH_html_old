@@ -1,0 +1,137 @@
+{
+  "coarseSamples": [
+    {
+      "contentStart": 0,
+      "contentEnd": 2,
+      "wallClock": 1791015421035,
+      "bps": 1064000
+    },
+    {
+      "contentStart": 0,
+      "contentEnd": 2,
+      "wallClock": 1791015421038,
+      "bps": 38999000
+    },
+    {
+      "contentStart": 2,
+      "contentEnd": 4,
+      "wallClock": 1791015421046,
+      "bps": 1450521333.3333333
+    },
+    {
+      "contentStart": 4,
+      "contentEnd": 6,
+      "wallClock": 1791015421242,
+      "bps": 813364363.6363636
+    },
+    {
+      "contentStart": 6,
+      "contentEnd": 8,
+      "wallClock": 1791015421396,
+      "bps": 141697180.32786885
+    },
+    {
+      "contentStart": 8,
+      "contentEnd": 10,
+      "wallClock": 1791015423357,
+      "bps": 182897018.1818182
+    },
+    {
+      "contentStart": 10,
+      "contentEnd": 12,
+      "wallClock": 1791015425407,
+      "bps": 230932869.56521738
+    },
+    {
+      "contentStart": 12,
+      "contentEnd": 14,
+      "wallClock": 1791015427361,
+      "bps": 111840160
+    },
+    {
+      "contentStart": 14,
+      "contentEnd": 16,
+      "wallClock": 1791015429317,
+      "bps": 104071520
+    },
+    {
+      "contentStart": 16,
+      "contentEnd": 18,
+      "wallClock": 1791015431349,
+      "bps": 119769538.46153846
+    },
+    {
+      "contentStart": 18,
+      "contentEnd": 20,
+      "wallClock": 1791015433377,
+      "bps": 138402181.8181818
+    }
+  ],
+  "fineSamples": [
+    {
+      "wallClockStart": 1791015421035,
+      "wallClockEnd": 1791015421037,
+      "approxContentTime": 0,
+      "bps": 140320000
+    },
+    {
+      "wallClockStart": 1791015421043,
+      "wallClockEnd": 1791015421045,
+      "approxContentTime": 2,
+      "bps": 4073752000
+    },
+    {
+      "wallClockStart": 1791015421238,
+      "wallClockEnd": 1791015421241,
+      "approxContentTime": 4,
+      "bps": 2797128000
+    },
+    {
+      "wallClockStart": 1791015421394,
+      "wallClockEnd": 1791015421396,
+      "approxContentTime": 6,
+      "bps": 127460000
+    },
+    {
+      "wallClockStart": 1791015423354,
+      "wallClockEnd": 1791015423356,
+      "approxContentTime": 8,
+      "bps": 835364000
+    },
+    {
+      "wallClockStart": 1791015425404,
+      "wallClockEnd": 1791015425406,
+      "approxContentTime": 10,
+      "bps": 1117152000
+    }
+  ],
+  "exportedTrace": {
+    "trace": [
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000,
+      140320000
+    ],
+    "bucketMs": 200,
+    "source": "fineSamples(progress-tick)",
+    "epochWallClock": 1791015421035
+  }
+}

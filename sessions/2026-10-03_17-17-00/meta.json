@@ -1,0 +1,24 @@
+{
+  "sessionId": "2026-10-03_17-17-00",
+  "testEpochWallClock": 1791015420921,
+  "lastSavedAtWallClock": 1791015434933,
+  "clock": {
+    "ready": false,
+    "offsetMs": null,
+    "nSamples": 0,
+    "jitterMs": null,
+    "windowSec": 60,
+    "method": "max over window of (server ts - browser receive time); error = min one-way delay"
+  },
+  "isacInterfaceEvents": [
+    {
+      "enabled": true,
+      "reason": "init",
+      "detected": "normal",
+      "type": "video_telemetry",
+      "kind": "isacInterface",
+      "wallClock": 1791015420991
+    }
+  ],
+  "dopplerDetections": []
+}

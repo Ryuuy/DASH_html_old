@@ -45,6 +45,81 @@ var THROTTLE_ENABLED = false;
 // 播放 5 倍速的“网速”变化，跟实际录到的完全不是一回事）。
 var TRACE_SAMPLE_INTERVAL_MS = 1000;
 
+// 20261009 新增：NTG-2501 监视数据（網页第 8/9/10 张图的数据源）。
+// 浏览器没法直接读 NTG 的 xml_master_monitor.cgi（跨域 + 要 POST），所以由 server7.js 代为轮询：
+//   - 后台线程每 NTG_POLL_MS（默认 200ms=5Hz）POST 一次 Master（192.168.1.201），一份 XML 里四个方向全有
+//     （跟 ntg2501_power_logger/ntg2501_http_logger.py 同一个接口；Python logger 还在跑的话两边请求量叠加，
+//     设备 httpd 在 >50Hz 时会拒连，所以这里默认只开 5Hz）
+//   - 每个样本追加写到 ntg2501_power_logger/logs/ntg_server7_<启动时间>.csv（"保存"；server 本地写盘，
+//     不占被测无线链路）
+//   - GET /api/ntg?since=<ts_ms> 返回 since 之后的新样本，网页每 500ms 取一次增量
+// 关掉：环境变量 NTG_ENABLE=0；换 IP：NTG_MASTER_IP=...；换频率：NTG_POLL_MS=...
+var NTG_ENABLE = process.env.NTG_ENABLE !== '0';
+var NTG_MASTER_IP = process.env.NTG_MASTER_IP || '192.168.1.201';
+var NTG_POLL_MS = Math.max(50, parseInt(process.env.NTG_POLL_MS || '200', 10));
+var NTG_KEEP = 40000;                 // 内存里保留的最大样本数（5Hz 约 2.2 小时）
+var ntgSamples = [];                  // {ts, wr_up, wr_down, in_up, in_down, out_up, out_down, rx_up, rx_down, tx_up, tx_down, cnr_up, cnr_down, mod_up, mod_down}
+var ntgLastError = null;
+var ntgCsvStream = null;
+var NTG_NUM_TAGS = {
+  wireless_range_up: 'wr_up', wireless_range_down: 'wr_down',
+  input_rate_up: 'in_up', input_rate_down: 'in_down',
+  output_rate_up: 'out_up', output_rate_down: 'out_down',
+  quality_rx_up_level: 'rx_up', quality_rx_down_level: 'rx_down',
+  quality_tx_up_level: 'tx_up', quality_tx_down_level: 'tx_down',
+  quality_rx_up_cnr: 'cnr_up', quality_rx_down_cnr: 'cnr_down'
+};
+var NTG_CSV_COLS = ['ts', 'wr_up', 'wr_down', 'in_up', 'in_down', 'out_up', 'out_down',
+                    'rx_up', 'rx_down', 'tx_up', 'tx_down', 'cnr_up', 'cnr_down', 'mod_up', 'mod_down'];
+
+function ntgPollOnce() {
+  var t0 = Date.now();
+  var req = http.request({ host: NTG_MASTER_IP, port: 80, path: '/xml_master_monitor.cgi', method: 'POST',
+                           headers: { 'Content-Length': 0 }, timeout: 2000 }, function (res) {
+    var body = '';
+    res.setEncoding('utf8');
+    res.on('data', function (c) { body += c; });
+    res.on('end', function () {
+      var smp = { ts: Math.round((t0 + Date.now()) / 2) };   // 请求中点作为采样时刻
+      var gotAny = false;
+      Object.keys(NTG_NUM_TAGS).forEach(function (tag) {
+        var m = new RegExp('<' + tag + '>(.*?)</' + tag + '>').exec(body);
+        var v = m ? parseFloat(m[1]) : NaN;
+        smp[NTG_NUM_TAGS[tag]] = isNaN(v) ? null : v;
+        if (!isNaN(v)) gotAny = true;
+      });
+      ['up_mod_val', 'down_mod_val'].forEach(function (tag) {
+        var m = new RegExp('<' + tag + '>(.*?)</' + tag + '>').exec(body);
+        smp[tag === 'up_mod_val' ? 'mod_up' : 'mod_down'] = m ? m[1].trim() : '';
+      });
+      if (!gotAny) { ntgLastError = '响应里没有数值字段（IP 指的是 Slave？）'; return; }
+      ntgLastError = null;
+      ntgSamples.push(smp);
+      if (ntgSamples.length > NTG_KEEP) ntgSamples.splice(0, ntgSamples.length - NTG_KEEP);
+      if (ntgCsvStream) ntgCsvStream.write(NTG_CSV_COLS.map(function (k) { return smp[k] === null ? '' : smp[k]; }).join(',') + '\n');
+    });
+  });
+  req.on('timeout', function () { req.destroy(new Error('timeout')); });
+  req.on('error', function (e) { ntgLastError = String(e.message || e); });
+  req.end();
+}
+
+function startNtgPoller() {
+  if (!NTG_ENABLE) { console.log('NTG poller: 已禁用（NTG_ENABLE=0）'); return; }
+  try {
+    var logDir = path.join(__dirname, 'ntg2501_power_logger', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    var d = new Date(), pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    var stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+    var csvPath = path.join(logDir, 'ntg_server7_' + stamp + '.csv');
+    ntgCsvStream = fs.createWriteStream(csvPath, { flags: 'a' });
+    ntgCsvStream.write(NTG_CSV_COLS.join(',') + '\n');
+    console.log('NTG poller: ' + NTG_MASTER_IP + ' 每 ' + NTG_POLL_MS + 'ms，保存到 ' + csvPath);
+  } catch (e) { console.log('NTG poller: 建 CSV 失败 ' + e); }
+  setInterval(ntgPollOnce, NTG_POLL_MS);
+}
+startNtgPoller();
+
 // 使用on方法注册事件处理,该事件一直被监听,任何的请求都会进入回调函数,执行相应的操作
 server.on('request', function(request, response) { // 当有request请求的时候触发处理函数  
   // 解析请求的URL
@@ -87,6 +162,17 @@ server.on('request', function(request, response) { // 当有request请求的时�
         response.end(JSON.stringify({ ok: false, error: String(e) }));
       }
     });
+    return;
+  }
+
+  // 20261009 新增：NTG 增量接口。GET /api/ntg?since=<ts_ms>  ->  {now, enabled, error, samples:[...]}
+  if (request.method === 'GET' && url.pathname === '/api/ntg') {
+    var since = parseFloat(new URLSearchParams(url.query || '').get('since')) || 0;
+    var out = [];
+    for (var ni = ntgSamples.length - 1; ni >= 0 && ntgSamples[ni].ts > since; ni--) out.push(ntgSamples[ni]);
+    out.reverse();
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=UTF-8', 'Cache-Control': 'no-store' });
+    response.end(JSON.stringify({ now: Date.now(), enabled: NTG_ENABLE, masterIp: NTG_MASTER_IP, error: ntgLastError, samples: out }));
     return;
   }
 

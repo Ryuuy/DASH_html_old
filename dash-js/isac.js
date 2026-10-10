@@ -5,10 +5,19 @@
  * ISAC 模式管理：预留给未来接入真实 25GHz passive ISAC 感知数据的统一入口。
  *
  * 目前只有两种模式：
- *   normal    —— 正常模式，buffer/码率按现有逻辑走（bandwidth.js 的实测加权平均 + adaptationlogic.js 按带宽选码率）
- *   shadowing —— ISAC 预测到即将发生遮挡（信号中断）时进入此模式：
- *                飞速拉大 buffer 上限、强制码率打到最低，让 refill 循环尽可能多、
- *                尽可能快地把低码率分片抢到本地 buffer 里（遮挡前的窗口很短，要抢时间）
+ *   normal           —— 正常模式，buffer/码率按现有逻辑走（bandwidth.js 的实测加权平均 + adaptationlogic.js 按带宽选码率）
+ *   doppler_detected —— ISAC 那边看到多普勒了（20261003 前叫 "shadowing"，因为有歧义改名；
+ *                       网页仍然接受旧字符串 "shadowing" 并当作 doppler_detected）。进入此模式：
+ *                       飞速拉大 buffer 上限、强制码率打到最低，让 refill 循环尽可能多、
+ *                       尽可能快地把低码率分片抢到本地 buffer 里（遮挡前的窗口很短，要抢时间）
+ *
+ * ## 20261003：ISAC 接口开关（网页上的 "ISAC interface" 按钮）
+ *   isac.detected          ISAC 那边报告的原始状态（不管接口开没开都跟着变，图和落盘都用它）
+ *   isac.interfaceEnabled  true = 接口打开，播放逻辑听 ISAC 的；false = 不考虑 ISAC，纯 ABR 基线
+ *   isac.mode              **实际生效的**模式 = interfaceEnabled ? detected : "normal"
+ *                          （adaptationlogic.js / telemetry / 图都读这个，所以其它代码不用改）
+ *   每次开关都会记一条 isacInterface 事件（telemetry.js），并通过 WebSocket 推回 isac_server，
+ *   server 盖上自己的接收时间；见 snapshots_FORMAT.md。
  *
  * 以后加新模式，只需要在 profile 里加一项，并在需要的地方判断 isac.mode 即可，
  * 不需要改这个文件之外的核心播放/请求逻辑。
@@ -20,26 +29,32 @@
 
 var isac = {
 
+	// 实际生效的模式（见头注释）。其它代码读的都是这个。
 	mode: "normal",
+	// ISAC 那边报告的原始状态；接口关掉时 mode 一直是 normal，但这个照常更新
+	detected: "normal",
+	detectedSource: "isac",
+	// ISAC 接口开关：true = 播放逻辑听 ISAC 的；false = 不考虑 ISAC
+	interfaceEnabled: true,
 
-	// 20260815 新增：shadowing 结束、mode 刚变回 normal 时先置 true，表示"ISAC 说风险解除了，
+	// 20260815 新增：doppler_detected 结束、mode 刚变回 normal 时先置 true，表示"ISAC 说风险解除了，
 	// 但链路是不是真的已经恢复还没被证实"。真正的证实由 adaptationlogic.js 里选码率时触发
 	// （见 confirmRecovery() 的注释），不是 mode 一变 normal 就直接信。
 	recovering: false,
 
 	// 各模式下的 buffer 目标（单位：秒）。critical 是触发 refill 的下限，max 是上限。
-	// normal 先沿用现有的 4/4，shadowing 的具体数值以后可以再调（数值越大，能抗的遮挡时长越长，
+	// normal 先沿用现有的 4/4，doppler_detected 的具体数值以后可以再调（数值越大，能抗的遮挡时长越长，
 	// 但代价是要更长的时间才能攒够，以及内存占用更大）
 	profile: {
-		normal:    { critical: 4,  max: 4  },
-		shadowing: { critical: 30, max: 30 }
+		normal:           { critical: 4,  max: 4  },
+		doppler_detected: { critical: 30, max: 30 }
 	},
 
 	segLength: 2,  // 需要和 mpd 里 <SegmentList duration="2"> 保持一致
 
 	// 20260816 新增：recovering 期间临时用多短的历史窗口重算带宽（单位：秒，见 bandwidth.js 的
 	// calcWeightedBandwidth——它用过去 hisSize 秒内每个分片的真实下载耗时做加权平均）。
-	// dash.js 里正常给的是 10 秒；shadowing 刚结束时这 10 秒窗口大半还是遮挡期/低速期的旧样本，
+	// dash.js 里正常给的是 10 秒；doppler_detected 刚结束时这 10 秒窗口大半还是遮挡期/低速期的旧样本，
 	// 要好几个真实分片才能把旧样本稀释掉，白白拖慢"判断出链路真的恢复了"的时机。
 	// recovering 期间临时缩到这个值，让新分片的真实测速几乎立刻主导预测值；
 	// confirmRecovery() 确认后会调回原来的窗口（避免正常播放时对网络抖动太敏感、画质来回跳）。
@@ -70,8 +85,60 @@ function restoreBandwidthWindow() {
 	isac._savedPredSize = null;
 }
 
-// 唯一的对外入口：切换 ISAC 模式。以后接真实 ISAC 数据源时，就是在这里传入解析出来的模式。
-function setISACMode(mode) {
+// 对外入口：ISAC 那边报告了一个状态。20261003 起这里只更新"原始检测状态"，真正套用到播放逻辑
+// 的是 _applyISACMode()，中间隔着 ISAC 接口开关。source 只是记录来源（'isac' | 'manual' | 'dBFS' | 'power'）。
+function setISACMode(mode, source) {
+
+	if (mode === "shadowing") mode = "doppler_detected"; // 旧字符串兼容（旧 bridge/旧 server）
+
+	if (isac.profile[mode] == null) {
+		console.log("ISAC: unknown mode requested: " + mode);
+		return;
+	}
+
+	isac.detected = mode;
+	isac.detectedSource = source || "isac";
+	_applyISACMode(isac.interfaceEnabled ? mode : "normal");
+}
+
+// 20261003 新增：ISAC 接口开关。关掉 = 播放逻辑完全不听 ISAC（生效模式强制 normal），
+// 但检测照常显示、照常记录，方便做"开/关"对照实验。
+function setISACInterface(enabled, reason) {
+	enabled = !!enabled;
+	if (isac.interfaceEnabled === enabled && reason !== "init") return;
+	isac.interfaceEnabled = enabled;
+	console.log("ISAC interface: " + (enabled ? "ON" : "OFF") + " (" + (reason || "button") + ")");
+	// 先记开关事件、再套用模式，这样时间线上"开关"一定排在它引起的"模式变化"前面
+	if (typeof dashTelemetry !== 'undefined') {
+		dashTelemetry.recordIsacInterface({ enabled: enabled, reason: reason || "button", detected: isac.detected });
+	}
+	_applyISACMode(enabled ? isac.detected : "normal");
+	updateISACLabels();
+}
+
+function toggleISACInterface() { setISACInterface(!isac.interfaceEnabled, "button"); }
+
+function updateISACLabels() {
+	if (typeof document === 'undefined') return;
+	var el = document.getElementById('isacModeLabel');
+	if (el) el.innerText = isac.mode;
+	el = document.getElementById('isacDetectedLabel');
+	if (el) el.innerText = isac.detected;
+	el = document.getElementById('isacIfBtn');
+	if (el) {
+		el.value = "ISAC interface: " + (isac.interfaceEnabled ? "ON" : "OFF");
+		el.style.background = isac.interfaceEnabled ? "#bdf0c0" : "#e0e0e0";
+		el.style.fontWeight = "bold";
+	}
+}
+
+// 页面加载完记一条初始状态，让记录文件的开头就带着"接口一开始是开还是关"
+if (typeof window !== 'undefined') {
+	window.addEventListener('load', function () { setISACInterface(isac.interfaceEnabled, "init"); });
+}
+
+// 套用一个"实际生效"的模式。内容就是 20261003 之前的 setISACMode()（逻辑没改，只是 shadowing 改名）。
+function _applyISACMode(mode) {
 
 	if (isac.profile[mode] == null) {
 		console.log("ISAC: unknown mode requested: " + mode);
@@ -82,17 +149,17 @@ function setISACMode(mode) {
 
 	console.log("ISAC: switching mode " + isac.mode + " -> " + mode + " at " + new Date().getTime());
 
-	// 20260815 新增：离开 shadowing 时，先只标记"待确认恢复"，不在这里清空已经囤好的低清缓冲——
+	// 20260815 新增：离开 doppler_detected 时，先只标记"待确认恢复"，不在这里清空已经囤好的低清缓冲——
 	// 万一这次预测有误、链路其实还没真通，囤好的低清分片还能继续顶着不卡顿。
 	// 真正清空旧缓冲、去抢高清分片的动作在 confirmRecovery() 里，由实测带宽真的选出
 	// 更高码率时才触发（见 adaptationlogic.js）。
-	var enteringRecovery = (isac.mode === "shadowing" && mode === "normal");
+	var enteringRecovery = (isac.mode === "doppler_detected" && mode === "normal");
 	var previousMode = isac.mode;
 
 	isac.mode = mode;
 	// 一旦不是"这次转场"，就把 recovering 清掉——防止上一轮恢复还没被 confirmRecovery()
-	// 确认，ISAC 又立刻重新报了一次 shadowing 时，残留的 true 把下面 applyISACBufferProfile()
-	// 挡住，导致新一轮 shadowing 该立刻放大的 buffer 目标迟迟不生效。
+	// 确认，ISAC 又立刻重新报了一次 doppler_detected 时，残留的 true 把下面 applyISACBufferProfile()
+	// 挡住，导致新一轮 doppler_detected 该立刻放大的 buffer 目标迟迟不生效。
 	isac.recovering = enteringRecovery;
 
 	// 20260817 新增：把这次模式切换记进遥测（见 telemetry.js），供第三张图的状态带
@@ -102,6 +169,9 @@ function setISACMode(mode) {
 			fromMode: previousMode,
 			toMode: mode,
 			recovering: isac.recovering,
+			detected: isac.detected,                 // 20261003：当时 ISAC 的原始状态
+			interfaceEnabled: isac.interfaceEnabled, // 20261003：当时接口开关
+			source: isac.detectedSource,
 			confirmed: false // 这里只是 ISAC 一侧发的模式切换信号，不代表"确认恢复"，confirmRecovery() 那次会传 true
 		});
 	}
@@ -109,21 +179,21 @@ function setISACMode(mode) {
 	if (enteringRecovery) {
 		shrinkBandwidthWindowForRecovery();
 	} else {
-		// 覆盖"上一轮恢复还没确认、又立刻进新一轮 shadowing"这种边界情况，
+		// 覆盖"上一轮恢复还没确认、又立刻进新一轮 doppler_detected"这种边界情况，
 		// 别让缩短过的窗口一直卡着不还原
 		restoreBandwidthWindow();
 	}
 
 	// 20260816 修复：recovering 期间（待确认恢复）先不要在这里收缩 buffer 目标。
-	// 原因：overlayBuffer 这时候往往已经攒了接近 shadowing 目标（30s）的低清数据，
+	// 原因：overlayBuffer 这时候往往已经攒了接近 doppler_detected 目标（30s）的低清数据，
 	// mediaSourceBuffer.js 的 refill() 是"fillState < bufferSize.maxseconds 才发起下一个分片请求"——
 	// 如果这里立刻把 maxseconds 砍到 normal 的 4s，fillState(~30) 远大于新目标，refill 会判定
 	// "buffer 已经够了"直接停摆（doRefill=false），不再发起任何新请求。没有新请求，
 	// DASHttp.js 的 onload 就不会再触发，switchRepresentation() 也就没机会再被调用，
 	// confirmRecovery() 永远等不到检查带宽的机会——只能等这些旧数据被真实播放耗尽、
-	// fillState 自然掉回 4s 以下才恢复探测，等同于必须把整个 shadowing buffer 播完，
+	// fillState 自然掉回 4s 以下才恢复探测，等同于必须把整个 doppler_detected buffer 播完，
 	// 这正是实测里"要等 30s buffer 播完才能回高清"的原因。
-	// 所以：recovering 期间维持 shadowing 的 30s 目标不变，让 refill 循环按原节奏继续发
+	// 所以：recovering 期间维持 doppler_detected 的 30s 目标不变，让 refill 循环按原节奏继续发
 	// 真实分片请求（此时已经不再强制最低码率，选码率交还给真实带宽判断了）——每个新请求
 	// 完成都会调用一次 switchRepresentation()，也就持续在"敲门"探测带宽有没有真的恢复。
 	// 真正把目标收回 4s，挪到 confirmRecovery() 确认恢复之后再做（见该函数）。
@@ -187,8 +257,9 @@ function confirmRecovery() {
 	// 单纯的模式切换信号区分开的关键字段——只有这条才代表"实测带宽真的证明链路通了"。
 	if (typeof dashTelemetry !== 'undefined') {
 		dashTelemetry.recordIsacEvent({
-			fromMode: "shadowing",
+			fromMode: "doppler_detected",
 			toMode: "normal",
+			interfaceEnabled: isac.interfaceEnabled,
 			recovering: false,
 			confirmed: true,
 			discardedSegments: discardSegments > 0 ? discardSegments : 0
@@ -196,7 +267,7 @@ function confirmRecovery() {
 	}
 
 	// 20260816 新增：确认恢复之后才真正把 buffer 目标收回 normal 的 4s（原因见 setISACMode() 里的说明）。
-	// 不管这次有没有可丢弃的旧分片都要做——否则 buffer 目标会一直停留在 shadowing 的 30s 不收缩。
+	// 不管这次有没有可丢弃的旧分片都要做——否则 buffer 目标会一直停留在 doppler_detected 的 30s 不收缩。
 	// applyISACBufferProfile() 内部会调用 overlayBuffer.signalRefill()，不用再额外调一次。
 	applyISACBufferProfile();
 }
