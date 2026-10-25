@@ -8,6 +8,7 @@
 	<script src="dash-js/sessionAutoSave.js"></script> <!-- 20260827 新增：刷新网页就自动建一个按时间命名的文件夹，定期把这次测试的数据存进 server7.js 本地的 sessions/ 目录 -->
 	<script src="dash-js/telemetry.js"></script> <!-- 20260817 新增：统一的遥测数据出口，isac.js/adaptationlogic.js/DASHttp.js/dash.js 都会写进去，要在它们之前加载 -->
 	<script src="dash-js/isac.js"></script>
+	<script src="dash-js/fillplan.js"></script> <!-- 20261025 新增："提前 t 秒补缓冲"逻辑 + t 的接口，?fill=1 才生效；要在 isac.js 之后、dash.js 建 buffer 之前 -->
 	<script src="dash-js/shadowInputs.js"></script> <!-- 20260826 新增：dBFS / power 两路独立的遮挡判断入口，要在 isac_ws_client.js 之前加载（它会转发消息过来） -->
 	<script src="dash-js/dopplerView.js"></script> <!-- 20261003 新增：第六张图，实时多普勒瀑布图 + 判决虚线 + ISAC interface 带，要在 isac_ws_client.js 之前 -->
 	<script src="dash-js/isac_ws_client.js"></script> <!-- 20260812 新增：接真实 ISAC WebSocket 推送，见 isac_server.py -->
@@ -119,7 +120,11 @@
 		
 		 video = document.querySelector('video');  // get the first element with the element name
 		// video = document.getElementById('myVideo'); // get element by id the same performance
-		var dashPlayer = new DASHPlayer(video, "http://" + window.location.hostname + ":8080/bunny_ibmff_mixed_1080p-public-access.mpd");
+		// 20261016：网页地址后面加 ?mpd=tos 就改用 Tears of Steel 高码率阶梯（tos_ibmff_mixed_1080p-public-access.mpd，
+		// 100 kbit/s – 16 Mbit/s 共 21 档）；不加参数就和以前完全一样（bunny）。?mpd=<名字> 读 <名字>_ibmff_mixed_1080p-public-access.mpd
+		var mpdName = "bunny";
+		try { var mpdQ = new URLSearchParams(window.location.search).get("mpd"); if (mpdQ && /^[A-Za-z0-9_-]+$/.test(mpdQ)) mpdName = mpdQ; } catch (e) {}
+		var dashPlayer = new DASHPlayer(video, "http://" + window.location.hostname + ":8080/" + mpdName + "_ibmff_mixed_1080p-public-access.mpd");
 		//var dashPlayer = new DASHPlayer(video, "http://192.168.1.103:8080/bunny_ibmff_mixed_1080p.mpd");
 		// 这里新建了一个DASHPlayer的对象 dashPlayer, 其参数为当前video元素，以及指定的mpd文件
 		// var dashPlayer = new DASHPlayer(video,"http://20689kf139.iok.la:50708/DASH-JS-master/bigbuckbunny_mp.mpd");

@@ -112,7 +112,18 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 
 			// 20260812 新增：ISAC 遮挡预警模式下，跳过按带宽估计选码率，直接强制走最低码率
 			// （见 dash-js/isac.js），原有的按带宽选码率逻辑保留在 else 分支里，不受影响
-			if (typeof isac !== 'undefined' && isac.mode === "doppler_detected") {
+			// 20261025 新增：?fill=1 时，doppler_detected 期间按"提前 t 秒补缓冲"选码率（见 fillplan.js），
+			// 返回 null = 不干预（缓冲已够）→ 走下面原来的 ABR；没开 ?fill=1 时 chooseRepresentation() 恒返回 null，
+			// 且下面的强制最低码率分支照旧生效，和以前完全一样。
+			var _fillPick = (typeof fillPlan !== 'undefined')
+				? fillPlan.chooseRepresentation(this.mpd.period[0].group[0].representation, this.lowestRepresentationID) : null;
+
+			if (_fillPick !== null) {
+
+				m = _fillPick;
+				n = parseInt(this.mpd.period[0].group[0].representation[m].bandwidth);
+
+			} else if (typeof isac !== 'undefined' && isac.mode === "doppler_detected" && !(typeof fillPlan !== 'undefined' && fillPlan.enabled)) {
 
 				n = parseInt(this.lowestRepresentation.bandwidth);
 				m = this.lowestRepresentationID;
@@ -159,7 +170,9 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 			if( m != this.representationID) 
 			{
 				// check if we should perform a resolution switch 只要有一个比例不同，就需要切换分辨率
-				if (parseInt(this.currentRepresentation.width) != parseInt(this.mpd.period[0].group[0].representation[m].width) || parseInt(this.currentRepresentation.height) != parseInt(this.mpd.period[0].group[0].representation[m].height))
+				// 20261016：加了 !DASH_MULTIRES——多分辨率 MPD（见 DASHttp.js 开头）下分辨率不同的档位也直接切，
+				// init 由 DASHttp.js 在每个分片前面自动拼上；单分辨率 MPD 下这个条件恒不成立，和以前完全一样。
+				if (!(typeof DASH_MULTIRES !== 'undefined' && DASH_MULTIRES) && (parseInt(this.currentRepresentation.width) != parseInt(this.mpd.period[0].group[0].representation[m].width) || parseInt(this.currentRepresentation.height) != parseInt(this.mpd.period[0].group[0].representation[m].height)))
 				{
 					if(this.resolutionSwitch != 0) console.log("Doing nothing because a resolution switch is already ongoing");
 						else
@@ -228,7 +241,8 @@ function init_rateBasedAdaptation(_mpd, video, bandwidth)
 					isacMode: (typeof isac !== 'undefined') ? isac.mode : undefined,
 					isacRecovering: (typeof isac !== 'undefined') ? isac.recovering : undefined,
 					isacInterface: (typeof isac !== 'undefined') ? isac.interfaceEnabled : undefined, // 20261003
-					dopplerState: (typeof isac !== 'undefined') ? isac.detected : undefined          // 20261003
+					dopplerState: (typeof isac !== 'undefined') ? isac.detected : undefined,         // 20261003
+					fillPlan: (typeof fillPlan !== 'undefined' && fillPlan.enabled) ? fillPlan.last : undefined // 20261025：这次补缓冲决策的 t/B/R/bmax 等
 				});
 			}
 

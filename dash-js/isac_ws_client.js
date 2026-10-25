@@ -77,6 +77,27 @@ function connectISACWebSocket() {
 		}
 		if (data && data.type === "clock") return;
 
+		// 20261025：isac_bridge.py 的 link_monitor 推来的 NTG 六状态 / 数据面（ping）。只记进快照，不影响播放逻辑。
+		// ts 是 Ubuntu 时钟（ms）；recvWallClock 是浏览器收到的 Date.now()，两个都留着方便对时间。
+		if (data && data.type === "ntg_state") {
+			if (typeof dashTelemetry !== 'undefined') dashTelemetry.recordNtgState({ serverTs: data.ts, ok: data.ok, states: data.states, changed: data.changed, recvWallClock: Date.now() });
+			return;
+		}
+		if (data && data.type === "dataplane") {
+			if (typeof dashTelemetry !== 'undefined') dashTelemetry.recordDataplane({ serverTs: data.ts, up: data.up, rttMs: data.rtt_ms, changed: data.changed, host: data.host, recvWallClock: Date.now() });
+			return;
+		}
+
+		// 20261025：预计多少秒后遮挡（t 的接口，见 fillplan.js）。可以单独发 {"type":"lead_time","t":1.4}，
+		// 也可以在 mode 消息里带 "lead_t"。放在 setISACMode 之前，这样同一条消息里的 t 先生效。
+		if (data && data.type === "lead_time") {
+			if (typeof setISACLeadTime === 'function') setISACLeadTime(data.t, "isac");
+			return;
+		}
+		if (data && typeof data.lead_t === 'number' && typeof setISACLeadTime === 'function') {
+			setISACLeadTime(data.lead_t, "isac");
+		}
+
 		if (data && data.mode) {
 			setISACMode(data.mode, "isac");   // 旧字符串 "shadowing" 在 setISACMode 里会被当成 doppler_detected
 			if (typeof updateISACLabels === 'function') updateISACLabels();

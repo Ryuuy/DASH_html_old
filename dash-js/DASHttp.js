@@ -31,6 +31,67 @@
  var progressTimeStamp = new Array();
  var progressTimeID = new Array();
 
+// ===== 20261016 新增：多分辨率（1080p/1440p/4K/8K）支持 =====
+// 背景：以前 MPD 里所有档位分辨率一样，换码率只是换分片、init 只在开头塞一次；
+// 一旦档位分辨率不同，必须在新分辨率的第一个分片前面先给 MSE 喂这个档位自己的 init。
+// 做法：MPD 里出现 >1 种分辨率时 DASH_MULTIRES=true，之后每个分片下载完、推进环形 buffer 之前，
+// 在分片字节前面拼上它所属档位的 init（只有几百字节~1 KB；MSE 允许 init+media 一起 append，
+// 重复收到 init 也没问题）。这样不管 refill/恢复流程怎么回退、丢弃 buffer，每个槽位都是自包含的，
+// 不需要记"上一个喂进 MSE 的是哪个分辨率"。
+// 测速不受影响：吞吐是在拼接之前用 data.length 算的（见 onload）。
+// 只有一种分辨率的 MPD（比如 bunny）DASH_MULTIRES=false，行为和以前完全一致。
+var DASH_MULTIRES = false;
+var dashInitCache = {};   // init 的完整 URL -> Uint8Array
+
+function dashInitUrl(rep, mpd)
+{
+	var base = (rep.baseURL && rep.baseURL != false) ? rep.baseURL : (mpd ? mpd.baseURL : '');
+	return base + rep.initializationSegment.src;
+}
+
+// 在 MPD 解析完后调用一次：判断是否多分辨率，并把每个档位的 init 预取到缓存里
+function dashSetupMultiRes(mpd)
+{
+	var reps = mpd.period[0].group[0].representation;
+	var sizes = {};
+	reps.forEach(function (r) { sizes[parseInt(r.width) + "x" + parseInt(r.height)] = true; });
+	DASH_MULTIRES = Object.keys(sizes).length > 1;
+	console.log("DASH-JS: " + Object.keys(sizes).length + " distinct resolution(s) in MPD -> DASH_MULTIRES=" + DASH_MULTIRES);
+	if (!DASH_MULTIRES) return;
+	reps.forEach(function (r) {
+		if (!r.hasInitialSegment) return;
+		var url = dashInitUrl(r, mpd);
+		if (dashInitCache[url]) return;
+		var xhr = new XMLHttpRequest();
+		xhr.open('GET', url, true);
+		xhr.responseType = 'arraybuffer';
+		xhr.onload = function () { if (xhr.status == 200) dashInitCache[url] = new Uint8Array(xhr.response); };
+		xhr.send();
+	});
+}
+
+// 拼接 init + 分片。缓存里没有就同步抓一次（只在预取没赶上时发生，init 很小）。
+function dashPrependInit(rep, data)
+{
+	if (!DASH_MULTIRES || !rep || !rep.hasInitialSegment) return data;
+	var url = dashInitUrl(rep, adaptation.mpd);
+	var init = dashInitCache[url];
+	if (!init) {
+		var sx = new XMLHttpRequest();
+		sx.open('GET', url, false);
+		sx.overrideMimeType('text/plain; charset=x-user-defined');
+		try { sx.send(); } catch (e) { console.log("DASH-JS: sync init fetch failed " + url); return data; }
+		if (sx.status != 200) return data;
+		var s = sx.responseText, u = new Uint8Array(s.length);
+		for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff;
+		dashInitCache[url] = init = u;
+	}
+	var out = new Uint8Array(init.length + data.length);
+	out.set(init, 0);
+	out.set(data, init.length);
+	return out;
+}
+
 function DASHttp()
 {
 	
@@ -104,18 +165,26 @@ function _fetch_segment(presentation, url, video, range, buffer)
 // 20260815 新增：_fetch_segment_for_buffer 的超时/重试参数。
 // 这几个数字只是通用的"多久算卡住""重试间隔多快涨"网络重试参数，不是在猜遮挡恢复具体要多少秒——
 // 不管链路实际卡了 3 秒还是 15 秒，下面的重试都会自己一直敲到通，不依赖这几个数字猜得准不准。
-var SEGMENT_FETCH_TIMEOUT_MS = 3000;
-var SEGMENT_RETRY_INITIAL_DELAY_MS = 500;
-var SEGMENT_RETRY_MAX_DELAY_MS = 3000;
+// 20261025：实测（无头 Chrome + 数据面探测，probe_runs/20261025_193213_page）发现链路恢复后第一个能到的请求，
+// 第一字节要等约 2.6–3.0 s，再下 1–2 s 大分片，总共 >3 s，被 3 s 超时截断，再加上翻倍的重试间隔，
+// 页面比数据面慢 6–13 s 才下到第一个分片。所以：超时 3000 -> 8000（XHR.timeout 是整个请求从 send 到收完的总时长，
+// 不是"有数据就续命"）；重试间隔 500/1000/2000/3000 递增 -> 固定 200 ms（INITIAL=MAX 就不再翻倍）。
+var SEGMENT_FETCH_TIMEOUT_MS = 8000;
+var SEGMENT_RETRY_INITIAL_DELAY_MS = 200;
+var SEGMENT_RETRY_MAX_DELAY_MS = 200;
 
 // 这个方法是将从服务器那里请求数据放到自定义的buffer里，而不是与播放器直接相关的buffer
 // 与播放器直接相关的buffer无法被读取，因此一直监控其播放的进度，当少于2秒了，就赶紧补充一些
-function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retryDelay)
+function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retryDelay, attempt)
 {
 	//video.width = presentation.width;
 	//video.height = presentation.height;
 
 	retryDelay = retryDelay || SEGMENT_RETRY_INITIAL_DELAY_MS;
+	// 20261025：这是同一个分片的第几次尝试（1 = 第一次），连同每次请求的起止时间一起记进遥测（dashTelemetry.requests），
+	// 以前失败/超时/重试完全没有记录，快照里只看得到最后成功的那次。
+	attempt = attempt || 1;
+	var reqStartWall = Date.now();
 
 	// 20260826 新增：给下面 rateInProgress() 用的近似内容时间点——发起请求这一刻
 	// curSegment 指向的就是这次要抓的分片，跟 onload 里 segContentTime 算法一致。
@@ -142,6 +211,12 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 	{
 
 		data = new Uint8Array(this.response);
+
+		if (typeof dashTelemetry !== 'undefined') {   // 20261025：记这次请求成功
+			dashTelemetry.recordRequest({ url: url, attempt: attempt, startWall: reqStartWall, endWall: Date.now(), state: 'ok',
+				httpStatus: this.status, bytes: data.length, timeoutMs: SEGMENT_FETCH_TIMEOUT_MS,
+				representationId: adaptation.representationID });
+		}
 
 		// 20260816：这个分片实际对应的视频内容时间点（秒）——curSegment 这时候还没 ++，
 		// 正好指向"刚下载完的这个分片"。一路透传给带宽估计/选码率/画图，让第一张图的横坐标
@@ -176,7 +251,9 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 		// 之后视频直接卡死。把 push 挪到 switchRepresentation() 之前，就能保证这次 push
 		// 落在的槽位，永远是"下载发起时"就已经确定、还没被 confirmRecovery 之后再改动过的位置，
 		// confirmRecovery 的丢弃/回退只会影响这次 push 之后、还没发起的下一个请求，不会影响已经落盘的这一段。
-		buffer.push(data, 2);
+		// 20261016：多分辨率 MPD 时，在分片前面拼上它所属档位（presentation = 发起请求时的档位）的 init。
+		// 吞吐在上面已经用拼接前的 data.length 算完了，不受影响。
+		buffer.push(dashPrependInit(presentation, data), 2);
 
 		// 20260826 新增：在 switchRepresentation()（可能改 adaptation.representationID）之前，
 		// 把"这个刚下载完、已经 push 进 buffer 的分片，是用哪个档位抓的"记下来，供第四张图
@@ -206,9 +283,14 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 	// 不把它画进第一张图，避免同一个内容位置反复出现好几个 0bps 的点，图更干净
 	// （现在横坐标已经改成用 xPos/真实内容时间点了，就算画出来也不会再错位，这里只是不想画）。
 	// 顺手也算出 xPos 传下去，虽然目前跳过画图用不上，留着是为了以后如果想改成"画出来"更方便。
-	xhr.ontimeout = xhr.onerror = function()
+	xhr.ontimeout = xhr.onerror = function(ev)
 	{
 		console.log('DASH JS Client: segment fetch failed/timeout for ' + url + ', retry in ' + retryDelay + 'ms');
+		if (typeof dashTelemetry !== 'undefined') {   // 20261025：记这次请求失败（timeout = 超时被取消，error = 网络错误）
+			dashTelemetry.recordRequest({ url: url, attempt: attempt, startWall: reqStartWall, endWall: Date.now(),
+				state: (ev && ev.type === 'timeout') ? 'timeout' : 'error', httpStatus: this.status, bytes: 0,
+				timeoutMs: SEGMENT_FETCH_TIMEOUT_MS, nextRetryMs: retryDelay, representationId: adaptation.representationID });
+		}
 
 		var segContentTime = adaptation.currentRepresentation.curSegment * 2;
 		mybps = endBitrateMeasurementByID(this.timeID, 0, true, segContentTime);
@@ -216,7 +298,7 @@ function _fetch_segment_for_buffer(presentation, url, video, range, buffer, retr
 
 		var nextDelay = Math.min(retryDelay * 2, SEGMENT_RETRY_MAX_DELAY_MS);
 		window.setTimeout(function () {
-			_fetch_segment_for_buffer(presentation, url, video, range, buffer, nextDelay);
+			_fetch_segment_for_buffer(presentation, url, video, range, buffer, nextDelay, attempt + 1);
 		}, retryDelay);
 	};
 
@@ -287,7 +369,14 @@ function _dashSourceOpen(buffer, presentation, video, mediaSource)
 
 	console.log("DASJ-JS: content type: " + presentation.mimeType + '; codecs="' + presentation.codecs + '"');
 	addSourceBuffer(mediaSource, buffer.id, presentation.mimeType + '; codecs="' + presentation.codecs + '"');
-	
+
+	// 20261019：把 MediaSource 总时长固定为 MPD 总时长。否则 <video controls> 进度条总长 = 当前已 append 的末尾，
+	// 每加一片就变，白条会先冲到一半再往回退。
+	try {
+		var totalDur = parsePT(dashInstance.mpdLoader.mpdparser.pmpd.mediaPresentationDuration);
+		if (totalDur > 0 && mediaSource.readyState === 'open' && !(mediaSource.duration >= totalDur)) mediaSource.duration = totalDur;
+	} catch (e) { console.log("set MediaSource.duration failed: " + e); }
+
 	
 	if(presentation.hasInitialSegment == false)
 	{

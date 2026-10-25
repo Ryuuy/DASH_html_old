@@ -55,7 +55,7 @@ var TRACE_SAMPLE_INTERVAL_MS = 1000;
 //   - GET /api/ntg?since=<ts_ms> 返回 since 之后的新样本，网页每 500ms 取一次增量
 // 关掉：环境变量 NTG_ENABLE=0；换 IP：NTG_MASTER_IP=...；换频率：NTG_POLL_MS=...
 var NTG_ENABLE = process.env.NTG_ENABLE !== '0';
-var NTG_MASTER_IP = process.env.NTG_MASTER_IP || '192.168.1.201';
+var NTG_MASTER_IP = process.env.NTG_MASTER_IP || '192.168.1.101'; // 20261025: Master/Slave 对调，Master 现在是 .101（以前 .201）
 var NTG_POLL_MS = Math.max(50, parseInt(process.env.NTG_POLL_MS || '200', 10));
 var NTG_KEEP = 40000;                 // 内存里保留的最大样本数（5Hz 约 2.2 小时）
 var ntgSamples = [];                  // {ts, wr_up, wr_down, in_up, in_down, out_up, out_down, rx_up, rx_down, tx_up, tx_down, cnr_up, cnr_down, mod_up, mod_down}

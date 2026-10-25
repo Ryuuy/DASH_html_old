@@ -57,7 +57,9 @@ function DASH_MPD_loaded()
 	myBandwidth = new bandwidth(bps, 10, 10); //第二个为历史秒数，第一个为预测秒数
    
 	adaptation = init_rateBasedAdaptation(dashInstance.mpdLoader.mpdparser.pmpd, dashInstance.videoTag, myBandwidth);
-	
+	// 20261016：多分辨率支持（见 DASHttp.js 开头的说明）；单分辨率 MPD 下什么都不改变
+	dashSetupMultiRes(dashInstance.mpdLoader.mpdparser.pmpd);
+
    	myFplot = new fPlot(document.getElementById("graph").getContext("2d"),parsePT(dashInstance.mpdLoader.mpdparser.pmpd.mediaPresentationDuration),document.getElementById("graph").width,document.getElementById("graph").height);
  	myFplot.initNewFunction(0);  //0是estimated bandwidth
 	myFplot.initNewFunction(1);  //1是选择的rep码率
@@ -118,7 +120,9 @@ function DASH_MPD_loaded()
 
 	adaptation.switchRepresentation(0); // try to get a better representation at the beginning
 	
-	overlayBuffer = init_mediaSourceBuffer(0, 4,4,2,dashInstance.videoTag,playbackTimePlot);
+	// 20261021：初始 buffer 目标取 isac.profile.normal（默认 20 s，可用网址 ?buf=秒 覆盖），不再写死 4
+	var _bufNormal = (typeof isac !== 'undefined' && isac.profile && isac.profile.normal) ? isac.profile.normal : { critical: 4, max: 4 };
+	overlayBuffer = init_mediaSourceBuffer(0, _bufNormal.critical, _bufNormal.max, 2, dashInstance.videoTag, playbackTimePlot);
 
 	// 20260812 新增：overlayBuffer 刚创建、还没存取过任何分片，这时候一次性把环形缓冲区
 	// 物理槽位数开到所有 ISAC 模式的最大值，见 dash-js/isac.js 里的说明

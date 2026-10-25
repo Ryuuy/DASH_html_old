@@ -46,7 +46,7 @@ var isac = {
 	// normal 先沿用现有的 4/4，doppler_detected 的具体数值以后可以再调（数值越大，能抗的遮挡时长越长，
 	// 但代价是要更长的时间才能攒够，以及内存占用更大）
 	profile: {
-		normal:           { critical: 4,  max: 4  },
+		normal:           { critical: 20, max: 20 },   // 20261021：4 → 20（要换回别的值用网址 ?buf=秒，如 ?buf=4 / ?buf=10）
 		doppler_detected: { critical: 30, max: 30 }
 	},
 
@@ -65,6 +65,20 @@ var isac = {
 	_savedPredSize: null
 
 };
+
+// 20261021 新增：网址 ?buf=<秒> 覆盖 normal 模式的 buffer 目标（critical 与 max 同值，沿用原来的约定）。
+// 不加就是上面默认的 20 s；做 always-10s / always-30s 之类的对照基线时直接改网址，不用改代码。
+// 注意：doppler_detected 仍是 30 s；buf 设得比 30 大时，ISAC ON 的"放大 buffer"就没有意义了。
+(function () {
+	try {
+		var q = new URLSearchParams(window.location.search).get('buf');
+		var b = q === null ? NaN : parseFloat(q);
+		if (isFinite(b) && b >= 2 && b <= 120) {
+			isac.profile.normal.critical = b;
+			isac.profile.normal.max = b;
+		}
+	} catch (e) { /* 老浏览器没有 URLSearchParams：保持默认 */ }
+})();
 
 // 20260816 新增：recovering 开始时把带宽预测窗口缩短，只保存一次原始值，
 // 防止重复调用把"已经缩短过的窗口"当成原始值存下来。
@@ -153,9 +167,12 @@ function _applyISACMode(mode) {
 	// 万一这次预测有误、链路其实还没真通，囤好的低清分片还能继续顶着不卡顿。
 	// 真正清空旧缓冲、去抢高清分片的动作在 confirmRecovery() 里，由实测带宽真的选出
 	// 更高码率时才触发（见 adaptationlogic.js）。
-	var enteringRecovery = (isac.mode === "doppler_detected" && mode === "normal");
+	// 20261025：?fill=1（fillplan.js）时不走"恢复确认+丢弃旧缓冲"——补进来的缓冲是要留着扛遮挡的
+	var enteringRecovery = (isac.mode === "doppler_detected" && mode === "normal")
+		&& !(typeof fillPlan !== 'undefined' && fillPlan.enabled);
 	var previousMode = isac.mode;
 
+	if (typeof fillPlan !== 'undefined') fillPlan.onModeChange(previousMode, mode); // 20261025：记警报起点、没给 t 就用默认值
 	isac.mode = mode;
 	// 一旦不是"这次转场"，就把 recovering 清掉——防止上一轮恢复还没被 confirmRecovery()
 	// 确认，ISAC 又立刻重新报了一次 doppler_detected 时，残留的 true 把下面 applyISACBufferProfile()

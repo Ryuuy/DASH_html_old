@@ -56,8 +56,9 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_MASTER_IP = "192.168.1.201"
-DEFAULT_SLAVE_IP = "192.168.1.101"
+# 20261025: Master/Slave swapped on the pair (before: Master .201 / Slave .101)
+DEFAULT_MASTER_IP = "192.168.1.101"
+DEFAULT_SLAVE_IP = "192.168.1.201"
 MONITOR_CGI = "/xml_master_monitor.cgi"
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")

@@ -41,6 +41,15 @@ var dashTelemetry = (function () {
 	var isacInterfaceEvents = [];
 	// 20261003：视频播放/暂停/结束事件（见 dopplerView.js），后处理时用来排除暂停的时间段
 	var videoStateEvents = [];
+	// 20261025 新增：
+	//  requests   页面每一次分片请求（含失败/超时/重试）：startWall/endWall(浏览器 Date.now)、state(ok|timeout|error)、
+	//             httpStatus、bytes、attempt、timeoutMs、nextRetryMs……（见 DASHttp.js；以前失败重试完全没有记录）
+	//  ntgStates  NTG 网页那六个状态（装置/無線/認証/監視信号/イーサ 自局·対向局），由 isac_bridge.py 的 link_monitor 经 ISAC ws 推来
+	//  dataplane  Ubuntu 到视频 server 的 ping 通不通（状态翻转 + 5 s 心跳），同上
+	// ntgStates / dataplane 只存本地、不回推给 isac_server（它们本来就是从 bridge 来的，bridge 自己也写了 csv）。
+	var requests = [];
+	var ntgStates = [];
+	var dataplane = [];
 	var maxKeep = 20000;      // 防止长时间播放把内存占满，超过就丢最老的（先进先出），不影响已经推送出去的部分
 	// 20261003：playbackSamples 每 0.1 s 一条，20000 条只够 33 分钟，半小时多一点的实验开头就被挤掉了，
 	// 单独放宽到 60000（100 分钟，约 20 MB）。shadowJudgments（dBFS/power 各 50 条/秒）仍是 20000 条
@@ -82,10 +91,20 @@ var dashTelemetry = (function () {
 		else if (kind === "dopplerDetection") { dopplerDetections.push(record); trim(dopplerDetections); }
 		else if (kind === "isacInterface") { isacInterfaceEvents.push(record); trim(isacInterfaceEvents); }
 		else if (kind === "videoState") { videoStateEvents.push(record); trim(videoStateEvents); }
+		else if (kind === "request") { requests.push(record); trim(requests); }
+		else if (kind === "ntgState") { ntgStates.push(record); trim(ntgStates); return record; }   // 只存本地，不回推
+		else if (kind === "dataplane") { dataplane.push(record); trim(dataplane); return record; }  // 只存本地，不回推
 
 		sendOverWs(record);
 		return record;
 	}
+
+	// 20261025 新增：页面的一次分片请求结果。见 DASHttp.js 的 onload / ontimeout / onerror。
+	// rec: {url, attempt, startWall, endWall, state:'ok'|'timeout'|'error', httpStatus, bytes, timeoutMs, nextRetryMs, representationId}
+	function recordRequest(rec) { return pushAndSend("request", rec); }
+	// 20261025 新增：bridge 推来的 NTG 六状态 / 数据面（见 isac_ws_client.js）。rec 里的 ts 是 Ubuntu 时钟（ms）。
+	function recordNtgState(rec) { return pushAndSend("ntgState", rec); }
+	function recordDataplane(rec) { return pushAndSend("dataplane", rec); }
 
 	// 一个分片的最终码率决策。见 adaptationlogic.js 的 switchRepresentation() 调用处。
 	// rec 期望包含：contentStart, contentEnd, representationId, bandwidthNominal,
@@ -171,7 +190,10 @@ var dashTelemetry = (function () {
 			dopplerDetections: dopplerDetections.slice(),
 			isacInterfaceEvents: isacInterfaceEvents.slice(),
 			videoStateEvents: videoStateEvents.slice(),
-			playbackSamples: playbackSamples.slice()
+			playbackSamples: playbackSamples.slice(),
+			requests: requests.slice(),      // 20261025
+			ntgStates: ntgStates.slice(),    // 20261025
+			dataplane: dataplane.slice()     // 20261025
 		};
 	}
 
@@ -189,6 +211,9 @@ var dashTelemetry = (function () {
 		recordDopplerDetection: recordDopplerDetection,
 		recordIsacInterface: recordIsacInterface,
 		recordVideoState: recordVideoState,
+		recordRequest: recordRequest,
+		recordNtgState: recordNtgState,
+		recordDataplane: recordDataplane,
 		findPlayingSegment: findPlayingSegment,
 		getSnapshot: getSnapshot,
 		exportJSON: exportJSON,
@@ -199,7 +224,10 @@ var dashTelemetry = (function () {
 		dopplerDetections: dopplerDetections,
 		isacInterfaceEvents: isacInterfaceEvents,
 		videoStateEvents: videoStateEvents,
-		playbackSamples: playbackSamples
+		playbackSamples: playbackSamples,
+		requests: requests,
+		ntgStates: ntgStates,
+		dataplane: dataplane
 	};
 
 })();
